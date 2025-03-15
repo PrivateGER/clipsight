@@ -24,7 +24,8 @@ import webbrowser
 import zstandard as zstd  # Add this import at the top
 import utils
 import time
-
+import generate  # Import the generate module for batch processing functions
+import numpy as np
 
 class CLIPSearchApp:
     def __init__(self, root):
@@ -203,7 +204,7 @@ class CLIPSearchApp:
     def _create_generate_tab(self, parent):
         # Variables for embedding generation
         self.gen_directory = tk.StringVar()
-        self.gen_output = tk.StringVar()
+        self.gen_output = tk.StringVar(value=self.embeddings_file.get())  # Initialize with current embeddings
         self.gen_model = tk.StringVar(value=self.model_name.get())
         self.gen_batch_size = tk.IntVar(value=16)
         self.gen_fp16 = tk.BooleanVar(value=False)
@@ -228,6 +229,11 @@ class CLIPSearchApp:
         ttk.Entry(settings_frame, textvariable=self.gen_output, width=40).grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
         ttk.Button(settings_frame, text="Browse...", command=self._browse_gen_output).grid(row=1, column=2, padx=5, pady=5)
         
+        # Use current embeddings button
+        ttk.Button(settings_frame, text="Use Current Embeddings File", 
+                   command=lambda: self.gen_output.set(self.embeddings_file.get())).grid(
+            row=1, column=3, padx=5, pady=5)
+        
         # Model
         ttk.Label(settings_frame, text="Model:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         ttk.Entry(settings_frame, textvariable=self.gen_model, width=40).grid(row=2, column=1, sticky=tk.EW, padx=5, pady=5)
@@ -240,7 +246,7 @@ class CLIPSearchApp:
             row=3, column=1, sticky=tk.W, padx=5, pady=5)
         
         # FP16 checkbox
-        ttk.Checkbutton(settings_frame, text="Use FP16 Precision (faster, uses less VRAM)", variable=self.gen_fp16).grid(
+        ttk.Checkbutton(settings_frame, text="Use FP16 Precision (faster & uses less VRAM, but less accurate) (not recommended, use smaller model instead)", variable=self.gen_fp16).grid(
             row=4, column=0, columnspan=3, sticky=tk.W, padx=5, pady=5)
         
         # Generate button
@@ -631,17 +637,29 @@ Supports both text-based and image-based queries.
             print(f"Error loading config: {e}")
 
     def _browse_gen_directory(self):
+        """Browse for input directory and set default output path."""
         directory = filedialog.askdirectory(title="Select Images Directory")
         if directory:
             self.gen_directory.set(directory)
-            # Default output filename
+            
+            # If no output file is set, default to either:
+            # 1. Currently loaded embeddings file
+            # 2. Directory name + _embeddings.json.zst
             if not self.gen_output.get():
-                dir_name = os.path.basename(directory)
-                self.gen_output.set(os.path.join(directory, f"{dir_name}_embeddings.json.zst"))
+                if self.embeddings_file.get():
+                    self.gen_output.set(self.embeddings_file.get())
+                else:
+                    dir_name = os.path.basename(directory)
+                    self.gen_output.set(os.path.join(directory, f"{dir_name}_embeddings.json.zst"))
 
     def _browse_gen_output(self):
+        """Browse for output file, defaulting to the currently loaded embeddings file."""
+        initial_file = self.embeddings_file.get() or ""
+        
         filename = filedialog.asksaveasfilename(
             title="Save Embeddings As",
+            initialfile=os.path.basename(initial_file),
+            initialdir=os.path.dirname(initial_file) if initial_file else None,
             filetypes=(
                 ("Compressed JSON", "*.json.zst"),
                 ("JSON files", "*.json"),
@@ -690,8 +708,16 @@ Supports both text-based and image-based queries.
                 
                 # Get image files
                 self._log(f"Scanning directory {self.gen_directory.get()} for images...")
-                image_files = utils.get_image_files(self.gen_directory.get())
-                self._log(f"Found {len(image_files)} images")
+                image_files, skipped_files = utils.get_image_files(self.gen_directory.get())
+                
+                # Log skipped files
+                if skipped_files:
+                    self._log(f"\nSkipped {len(skipped_files)} invalid or non-image files:")
+                    for path, reason in skipped_files:
+                        self._log(f"  - {os.path.basename(path)}: {reason}")
+                    self._log("")  # Add blank line for readability
+                
+                self._log(f"Found {len(image_files)} valid images")
                 
                 # Find images that need processing
                 self._log("Identifying new images to process...")
@@ -738,12 +764,14 @@ Supports both text-based and image-based queries.
                     self._log(f"Processing batch {current_batch}/{total_batches} ({len(batch_paths)} images)")
                     
                     # Process batch
-                    if is_clip:
-                        from generate import process_batch_clip
-                        batch_results = process_batch_clip(batch_paths, model, processor, device)
-                    else:
-                        from generate import process_batch_vit
-                        batch_results = process_batch_vit(batch_paths, model, processor, device)
+                    batch_results, failed_images = generate.process_batch(batch_paths, model, processor, device, is_clip)
+                    
+                    # Log any failures
+                    if failed_images:
+                        self._log(f"\nFailed to process {len(failed_images)} images in this batch:")
+                        for path, error in failed_images:
+                            self._log(f"  - {os.path.basename(path)}: {error}")
+                        self._log("")  # Add blank line for readability
                     
                     # Update embeddings
                     existing_embeddings.update(batch_results)
@@ -771,7 +799,7 @@ Supports both text-based and image-based queries.
                     
                     # Offer to load the embeddings for search
                     if messagebox.askyesno("Generation Complete", 
-                                         f"Generated {new_count} new embeddings. Load them for search?"):
+                                        f"Generated {new_count} new embeddings. Load them for search?"):
                         self.embeddings_file.set(output_path)
                         self.notebook.select(0)  # Switch to search tab
                         self._load_embeddings()

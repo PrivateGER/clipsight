@@ -7,22 +7,40 @@ import os
 import json
 import torch
 import zstandard as zstd
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 from PIL import Image
+import numpy as np
 from transformers import CLIPModel, CLIPProcessor, ViTModel, ViTImageProcessor
 
 
 def get_image_files(directory: str) -> List[str]:
-    """Get a list of all image files in the directory."""
-    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tiff', '.tif']
+    """
+    Get a list of all valid image files in the directory.
+    Checks both file extension and attempts to verify file is a valid image.
+    """
+    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tiff', '.tif'}
     image_files = []
+    skipped_files = []
 
     for root, _, files in os.walk(directory):
         for file in files:
-            if any(file.lower().endswith(ext) for ext in image_extensions):
-                image_files.append(os.path.join(root, file))
+            file_path = os.path.join(root, file)
+            ext = os.path.splitext(file.lower())[1]
+            
+            # Skip files without image extensions
+            if ext not in image_extensions:
+                skipped_files.append((file_path, "Not an image file extension"))
+                continue
+                
+            # Verify file is a valid image
+            try:
+                with Image.open(file_path) as img:
+                    img.verify()  # Verify it's actually an image
+                image_files.append(file_path)
+            except Exception as e:
+                skipped_files.append((file_path, f"Invalid image file: {str(e)}"))
 
-    return sorted(image_files)
+    return sorted(image_files), skipped_files
 
 
 def load_embeddings(file_path: str) -> Dict[str, Dict[str, Any]]:
@@ -77,7 +95,7 @@ def is_clip_model(model_name: str) -> bool:
     return 'clip' in model_name.lower()
 
 
-def load_model(model_name: str, use_fp16: bool = False, force_cpu: bool = False):
+def load_model(model_name: str, use_fp16: bool = False, force_cpu: bool = False) -> Tuple:
     """Load a CLIP or ViT model with appropriate processor."""
     is_clip = is_clip_model(model_name)
     

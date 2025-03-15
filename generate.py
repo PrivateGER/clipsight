@@ -8,119 +8,110 @@ Implements proper batch processing for significantly faster embedding generation
 """
 
 import os
-import json
 import argparse
-from typing import Dict, List, Tuple, Any, Set
-from pathlib import Path
-import hashlib
-import zstandard as zstd
-
-import numpy as np
-from tqdm import tqdm
-
+from typing import Dict, List, Any
 import torch
 from PIL import Image
-from torchvision import transforms
-from transformers import CLIPModel, CLIPProcessor, ViTModel, ViTImageProcessor
+from tqdm import tqdm
+import numpy as np
+import utils
 
-
-def calculate_file_hash(file_path: str) -> str:
-    """Calculate the SHA-256 hash of a file to uniquely identify it."""
-    hash_sha256 = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_sha256.update(chunk)
-    return hash_sha256.hexdigest()
-
-
-def get_image_files(directory: str) -> List[str]:
-    """Get a list of all image files in the directory."""
-    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tiff', '.tif']
-    image_files = []
-
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if any(file.lower().endswith(ext) for ext in image_extensions):
-                image_files.append(os.path.join(root, file))
-
-    return sorted(image_files)
-
-
-def load_embeddings(file_path: str) -> Dict[str, Dict[str, Any]]:
-    """Load existing embeddings from a file."""
-    if not os.path.exists(file_path):
-        # Try with .zst extension
-        zst_path = file_path + '.zst'
-        if os.path.exists(zst_path):
-            file_path = zst_path
-        else:
-            return {}
-
-    try:
-        if file_path.endswith('.zst'):
-            with open(file_path, 'rb') as f:
-                dctx = zstd.ZstdDecompressor()
-                json_str = dctx.decompress(f.read()).decode('utf-8')
-                return json.loads(json_str)
-        else:
-            # Legacy JSON support
-            with open(file_path, 'r') as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"Warning: Could not load embeddings from {file_path}. Starting fresh. Error: {e}")
-        return {}
-
-
-def save_embeddings(embeddings: Dict[str, Dict[str, Any]], file_path: str) -> None:
-    """Save embeddings to a compressed file."""
-    # Create directory if it doesn't exist
-    directory = os.path.dirname(file_path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-
-    # Ensure the file has .zst extension
-    if not file_path.endswith('.zst'):
-        file_path = file_path + '.zst'
-
-    # Convert to JSON string
-    json_str = json.dumps(embeddings, indent=None)
-
-    # Compress and save
-    cctx = zstd.ZstdCompressor(level=10)  # Higher compression level
-    compressed = cctx.compress(json_str.encode('utf-8'))
+def main(args: argparse.Namespace) -> None:
+    # Update embeddings file path to use .zst extension if not specified
+    if not args.output.endswith('.zst'):
+        args.output = args.output + '.zst'
     
-    with open(file_path, 'wb') as f:
-        f.write(compressed)
+    # Load existing embeddings
+    embeddings_file = args.output
+    existing_embeddings = utils.load_embeddings(embeddings_file)
+    print(f"Loaded {len(existing_embeddings)} existing embeddings")
 
+    # Get all image files in the directory
+    image_files, skipped_files = utils.get_image_files(args.directory)
+    
+    # Report skipped files
+    if skipped_files:
+        print(f"\nSkipped {len(skipped_files)} invalid or non-image files:")
+        for path, reason in skipped_files[:10]:  # Show first 10
+            print(f"  - {os.path.basename(path)}: {reason}")
+        if len(skipped_files) > 10:
+            print(f"  ... and {len(skipped_files) - 10} more")
+        print()
+    
+    print(f"Found {len(image_files)} valid images in {args.directory}")
 
-def is_clip_model(model_name: str) -> bool:
-    """Check if the model is a CLIP model based on its name."""
-    return 'clip' in model_name.lower()
+    # Check if CLIP model
+    is_clip = utils.is_clip_model(args.model)
+    model_type = "CLIP" if is_clip else "ViT"
 
+    # Load model
+    print(f"Loading {model_type} model: {args.model}")
+    model, processor, device, is_clip = utils.load_model(
+        args.model, 
+        use_fp16=args.fp16, 
+        force_cpu=args.cpu
+    )
 
-def find_images_to_process(image_files: List[str], existing_embeddings: Dict[str, Dict[str, Any]]) -> List[str]:
-    """
-    Find images that need to be processed based on path comparison.
-    Returns a list of image paths that need processing.
-    """
-    to_process = []
-    existing_paths = {entry['path'] for entry in existing_embeddings.values()}
+    # Log device and precision information
+    if device == 'cuda':
+        vram_bytes = torch.cuda.get_device_properties(0).total_memory
+        vram_gb = vram_bytes / (1024 ** 3)
+        precision = "FP16" if args.fp16 else "FP32"
+        print(f"GPU detected with {vram_gb:.2f} GB VRAM, using {precision}")
+    else:
+        print("Using CPU for inference")
 
-    for image_path in image_files:
-        abs_path = os.path.abspath(image_path)
-        if abs_path not in existing_paths:
-            to_process.append(abs_path)
+    # Find images that need processing
+    to_process = utils.find_images_to_process(image_files, existing_embeddings)
 
-    print(f"Found {len(to_process)} images to process out of {len(image_files)} total images")
-    return to_process
+    # Set batch size
+    batch_size = args.batch_size
+    print(f"Using batch size of {batch_size}")
 
+    # Process in batches
+    new_count = 0
+    total_batches = (len(to_process) + batch_size - 1) // batch_size
 
-def process_batch_vit(batch_paths: List[str], model: ViTModel,
-                      processor: ViTImageProcessor, device: str) -> Dict[str, Dict[str, Any]]:
+    with tqdm(total=len(to_process), desc="Processing images") as pbar:
+        for i in range(0, len(to_process), batch_size):
+            batch_paths = to_process[i:i + batch_size]
+
+            # Process batch
+            results, failed = process_batch(batch_paths, model, processor, device, is_clip)
+
+            # Update embeddings
+            existing_embeddings.update(results)
+            new_count += len(results)
+            pbar.update(len(batch_paths))
+
+            # Save periodically
+            if (i // batch_size + 1) % args.save_interval == 0 or i + batch_size >= len(to_process):
+                utils.save_embeddings(existing_embeddings, embeddings_file)
+                pbar.set_postfix({"New": new_count, "Total": len(existing_embeddings)})
+
+    # Final save
+    utils.save_embeddings(existing_embeddings, embeddings_file)
+
+    print(f"\nCompleted processing {len(to_process)} images")
+    print(f"New/updated embeddings: {new_count}")
+    print(f"Total embeddings in file: {len(existing_embeddings)}")
+    print(f"Embeddings saved to: {embeddings_file}")
+
+def process_batch(batch_paths: List[str], model, processor, device: str, is_clip: bool) -> Dict[str, Dict[str, Any]]:
+    """Process a batch of images using the appropriate model."""
+    if is_clip:
+        results, failed = process_batch_clip(batch_paths, model, processor, device)
+    else:
+        results, failed = process_batch_vit(batch_paths, model, processor, device)
+    
+    return results, failed
+
+def process_batch_vit(batch_paths: List[str], model, processor, device: str) -> Dict[str, Dict[str, Any]]:
     """Process a batch of images using a ViT model."""
     results = {}
     batch_images = []
     valid_paths = []
+    failed_paths = []  # Track failed images
 
     # Load images
     for img_path in batch_paths:
@@ -129,10 +120,11 @@ def process_batch_vit(batch_paths: List[str], model: ViTModel,
             batch_images.append(img)
             valid_paths.append(img_path)
         except Exception as e:
+            failed_paths.append((img_path, str(e)))
             print(f"Error opening {img_path}: {e}")
 
     if not batch_images:
-        return results
+        return results, failed_paths
 
     try:
         # Process images as a batch
@@ -176,17 +168,17 @@ def process_batch_vit(batch_paths: List[str], model: ViTModel,
                     'embedding': embedding.tolist()
                 }
             except Exception as inner_e:
+                failed_paths.append((img_path, str(inner_e)))
                 print(f"Error processing individual image {img_path}: {inner_e}")
 
-    return results
+    return results, failed_paths
 
-
-def process_batch_clip(batch_paths: List[str], model: CLIPModel,
-                       processor: CLIPProcessor, device: str) -> Dict[str, Dict[str, Any]]:
+def process_batch_clip(batch_paths: List[str], model, processor, device: str) -> Dict[str, Dict[str, Any]]:
     """Process a batch of images using a CLIP model."""
     results = {}
     batch_images = []
     valid_paths = []
+    failed_paths = []  # Track failed images
 
     # Load images
     for img_path in batch_paths:
@@ -195,10 +187,11 @@ def process_batch_clip(batch_paths: List[str], model: CLIPModel,
             batch_images.append(img)
             valid_paths.append(img_path)
         except Exception as e:
+            failed_paths.append((img_path, str(e)))
             print(f"Error opening {img_path}: {e}")
 
     if not batch_images:
-        return results
+        return results, failed_paths
 
     try:
         # Process images as a batch
@@ -254,100 +247,10 @@ def process_batch_clip(batch_paths: List[str], model: CLIPModel,
                     'embedding': embedding.tolist()
                 }
             except Exception as inner_e:
+                failed_paths.append((img_path, str(inner_e)))
                 print(f"Error processing individual image {img_path}: {inner_e}")
 
-    return results
-
-
-def main(args: argparse.Namespace) -> None:
-    # Update embeddings file path to use .zst extension if not specified
-    if not args.output.endswith('.zst'):
-        args.output = args.output + '.zst'
-    
-    # Load existing embeddings
-    embeddings_file = args.output
-    existing_embeddings = load_embeddings(embeddings_file)
-    print(f"Loaded {len(existing_embeddings)} existing embeddings")
-
-    # Get all image files in the directory
-    image_files = get_image_files(args.directory)
-    print(f"Found {len(image_files)} images in {args.directory}")
-
-    # Check if CLIP model
-    is_clip = is_clip_model(args.model)
-    model_type = "CLIP" if is_clip else "ViT"
-
-    # Load model and processor
-    print(f"Loading {model_type} model: {args.model}")
-
-    if is_clip:
-        processor = CLIPProcessor.from_pretrained(args.model)
-        model_class = CLIPModel
-    else:
-        processor = ViTImageProcessor.from_pretrained(args.model)
-        model_class = ViTModel
-
-    # Set up device and precision
-    if torch.cuda.is_available() and not args.cpu:
-        device = 'cuda'
-        # Check available VRAM
-        vram_bytes = torch.cuda.get_device_properties(0).total_memory
-        vram_gb = vram_bytes / (1024 ** 3)
-        print(f"GPU detected with {vram_gb:.2f} GB VRAM")
-
-        # Load model with appropriate precision
-        if args.fp16:
-            print(f"Loading {model_type} model with half precision (FP16)")
-            model = model_class.from_pretrained(args.model, torch_dtype=torch.float16).to(device)
-        else:
-            print(f"Loading {model_type} model with full precision (FP32)")
-            model = model_class.from_pretrained(args.model).to(device)
-
-        print("Using GPU for inference")
-    else:
-        device = 'cpu'
-        model = model_class.from_pretrained(args.model)
-        print("Using CPU for inference")
-
-    # Find images that need processing
-    to_process = find_images_to_process(image_files, existing_embeddings)
-
-    # Set batch size
-    batch_size = args.batch_size
-    print(f"Using batch size of {batch_size}")
-
-    # Process in batches
-    new_count = 0
-    total_batches = (len(to_process) + batch_size - 1) // batch_size
-
-    with tqdm(total=len(to_process), desc="Processing images") as pbar:
-        for i in range(0, len(to_process), batch_size):
-            batch_paths = to_process[i:i + batch_size]
-
-            # Process batch
-            if is_clip:
-                batch_results = process_batch_clip(batch_paths, model, processor, device)
-            else:
-                batch_results = process_batch_vit(batch_paths, model, processor, device)
-
-            # Update embeddings
-            existing_embeddings.update(batch_results)
-            new_count += len(batch_results)
-            pbar.update(len(batch_paths))
-
-            # Save periodically
-            if (i // batch_size + 1) % args.save_interval == 0 or i + batch_size >= len(to_process):
-                save_embeddings(existing_embeddings, embeddings_file)
-                pbar.set_postfix({"New": new_count, "Total": len(existing_embeddings)})
-
-    # Final save
-    save_embeddings(existing_embeddings, embeddings_file)
-
-    print(f"\nCompleted processing {len(to_process)} images")
-    print(f"New/updated embeddings: {new_count}")
-    print(f"Total embeddings in file: {len(existing_embeddings)}")
-    print(f"Embeddings saved to: {embeddings_file}")
-
+    return results, failed_paths
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate ViT/CLIP embeddings for images")
