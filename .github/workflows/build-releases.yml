@@ -2,12 +2,15 @@ name: Build and Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    # Add explicit permissions to fix the "Resource not accessible by integration" error
+    permissions:
+      contents: write
     outputs:
       release_id: ${{ steps.create_release.outputs.id }}
       upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -44,6 +47,8 @@ jobs:
   build-windows:
     needs: create-release
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -82,6 +87,8 @@ jobs:
   build-macos:
     needs: create-release
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -120,6 +127,8 @@ jobs:
   build-linux:
     needs: create-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
