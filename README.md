@@ -5,8 +5,8 @@ This tool allows you to search through your image collection using natural langu
 
 <table>
   <tr>
-    <td><img src="https://s3.plasmatrap.com/plasmatrap/2d552eaa-12dd-4ea0-b336-cf4c1ad76e25.webp" alt="Sample Text Search"></td>
-    <td><img src="https://s3.plasmatrap.com/plasmatrap/222769f3-33d9-4ad7-8960-2fa482418923.webp" alt="Sample Image Search"></td>
+    <td><img src="https://s3.plasmatrap.com/plasmatrap/2d552eaa-12dd-4ea0-b336-cf4c1ad76e25.webp" alt="Sample Text Search"><p style="text-align: center">Natural language search</p></td>
+    <td><img src="https://s3.plasmatrap.com/plasmatrap/222769f3-33d9-4ad7-8960-2fa482418923.webp" alt="Sample Image Search"><p style="text-align: center">Image-based search</p></td>
   </tr>
 </table>
 
