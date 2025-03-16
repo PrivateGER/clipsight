@@ -124,9 +124,24 @@ class SearchTab:
         # Call once to set initial tooltip
         update_model_tooltip()
 
+        # Auto-load options row
+        auto_load_frame = ttk.Frame(settings_frame)
+        auto_load_frame.grid(row=2, column=0, columnspan=3, sticky=tk.W, padx=5, pady=8)
+        
+        ttk.Label(auto_load_frame, text="Auto-load on Startup:").pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Create checkboxes for auto-load options
+        ttk.Checkbutton(auto_load_frame, text="Embeddings", 
+                       variable=self.app.auto_load_embeddings,
+                       command=self.app._save_config).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Checkbutton(auto_load_frame, text="Model", 
+                       variable=self.app.auto_load_model,
+                       command=self.app._save_config).pack(side=tk.LEFT)
+
         # Action button row - span all columns
         action_frame = ttk.Frame(settings_frame)
-        action_frame.grid(row=2, column=0, columnspan=3, pady=8, sticky=tk.EW)
+        action_frame.grid(row=3, column=0, columnspan=3, pady=8, sticky=tk.EW)
         
         # Load embeddings button - now starts a background thread
         load_btn = ttk.Button(action_frame, text="Load Embeddings", 

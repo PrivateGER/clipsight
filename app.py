@@ -62,6 +62,10 @@ class CLIPSearchApp:
         self.status_text = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
         
+        # Auto-load settings
+        self.auto_load_embeddings = tk.BooleanVar(value=False)
+        self.auto_load_model = tk.BooleanVar(value=False)
+        
         # Initialize theme variable only once
         self.theme_var = tk.StringVar(value="system")
         
@@ -214,7 +218,9 @@ class CLIPSearchApp:
         config = {
             "embeddings_file": self.embeddings_file.get(),
             "model_name": self.model_name.get(),
-            "theme": self.theme_var.get()  # Save the theme preference
+            "theme": self.theme_var.get(),  # Save the theme preference
+            "auto_load_embeddings": self.auto_load_embeddings.get(),
+            "auto_load_model": self.auto_load_model.get()
         }
         self.config_manager.save_config(config)
 
@@ -227,6 +233,28 @@ class CLIPSearchApp:
         
         if "model_name" in config:
             self.model_name.set(config["model_name"])
+        
+        # Load auto-load preferences
+        if "auto_load_embeddings" in config:
+            self.auto_load_embeddings.set(config["auto_load_embeddings"])
+        
+        if "auto_load_model" in config:
+            self.auto_load_model.set(config["auto_load_model"])
+        
+        # Auto-load resources if enabled
+        self._auto_load_resources()
+
+    def _auto_load_resources(self):
+        """Automatically load resources based on preferences"""
+        # Check if should auto-load model
+        if self.auto_load_model.get() and self.model_name.get():
+            self.status_text.set(f"Auto-loading model...")
+            self._load_model()
+        
+        # Check if should auto-load embeddings
+        if self.auto_load_embeddings.get() and self.embeddings_file.get() and os.path.isfile(self.embeddings_file.get()):
+            self.status_text.set(f"Auto-loading embeddings...")
+            self._load_embeddings()
 
     def _show_about(self):
         """Show about dialog"""
