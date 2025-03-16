@@ -266,7 +266,7 @@ class GenerateTab:
                                                  f"The existing embeddings were generated with model:\n{previous_model}\n\n"
                                                  f"You are now using model:\n{self.gen_model.get()}\n\n"
                                                  "Mixing embeddings from different models is VERY unlikely to be wanted. "
-                                                 "Do you want to continue anyway? Please create a backup beforehand.", icon='warning'):
+                                                 "Do you want to continue anyway? Please create a backup beforehand as it may corrupt your data.", icon='warning'):
                                 self.gen_status.set("Generation cancelled")
                                 self._log("Embedding generation cancelled due to model mismatch")
                                 return

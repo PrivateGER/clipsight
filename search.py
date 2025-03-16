@@ -315,7 +315,7 @@ class SearchTab:
                 if not messagebox.askyesno("Model Mismatch Warning", 
                                          f"The embeddings were generated with model:\n{embedded_model}\n\n"
                                          f"You are searching with model:\n{current_model}\n\n"
-                                         "This may lead to inaccurate search results. Continue anyway?"):
+                                         "This may lead to inaccurate search results, or not work at all. Continue anyway?"):
                     return
 
         def search_task():
@@ -390,7 +390,7 @@ class SearchTab:
                 if not messagebox.askyesno("Model Mismatch Warning", 
                                          f"The embeddings were generated with model:\n{embedded_model}\n\n"
                                          f"You are searching with model:\n{current_model}\n\n"
-                                         "This may lead to inaccurate search results. Continue anyway?"):
+                                         "This may lead to inaccurate search results, or not work at all. Continue anyway?"):
                     return
 
         def search_task():
