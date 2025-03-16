@@ -150,11 +150,166 @@ jobs:
           asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-macos.zip
           asset_content_type: application/zip
 
+  build-windows-cpu:
+    needs: create-release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          
+          # Install PyTorch CPU-only version
+          pip install torch torchvision torchaudio
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
+          pip install pyinstaller
+      
+      - name: Build with PyInstaller
+        run: |
+          # Check if icon file exists and modify command accordingly
+          if (Test-Path "search_icon.ico") {
+            pyinstaller --name CLIPsight-cpu --onedir --windowed --icon=search_icon.ico --add-data "search_icon.ico;." main.py
+          } else {
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight-cpu --onedir --windowed main.py
+          }
+      
+      - name: Zip directory
+        run: |
+          cd dist
+          Compress-Archive -Path CLIPsight-cpu -DestinationPath CLIPsight-windows-cpu.zip
+      
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./dist/CLIPsight-windows-cpu.zip
+          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-windows-cpu.zip
+          asset_content_type: application/zip
+
   build-linux:
     needs: create-release
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          
+          # Install PyTorch CPU-only version
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
+          pip install pyinstaller
+          
+          # Install Linux GUI dependencies
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
+      
+      - name: Build with PyInstaller
+        run: |
+          # Check if icon file exists and modify command accordingly
+          if [ -f "search_icon.ico" ]; then
+            pyinstaller --name CLIPsight-cpu --onedir --windowed --icon=search_icon.ico main.py
+          else
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight-cpu --onedir --windowed main.py
+          fi
+      
+      - name: Create zip archive
+        run: |
+          cd dist
+          zip -r CLIPsight-linux-cpu.zip CLIPsight-cpu
+      
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./dist/CLIPsight-linux-cpu.zip
+          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-linux-cpu.zip
+          asset_content_type: application/zip
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          
+          # Install PyTorch with ROCm support
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.4.2
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
+          pip install pyinstaller
+          
+          # Install Linux GUI dependencies
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
+      
+      - name: Build with PyInstaller
+        run: |
+          # Check if icon file exists and modify command accordingly
+          if [ -f "search_icon.ico" ]; then
+            pyinstaller --name CLIPsight-rocm --onedir --windowed --icon=search_icon.ico main.py
+          else
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight-rocm --onedir --windowed main.py
+          fi
+      
+      - name: Create zip archive
+        run: |
+          cd dist
+          zip -r CLIPsight-linux-rocm.zip CLIPsight-rocm
+      
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./dist/CLIPsight-linux-rocm.zip
+          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-linux-rocm.zip
+          asset_content_type: application/zip
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
