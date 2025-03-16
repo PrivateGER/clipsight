@@ -57,6 +57,15 @@ class CLIPSearchApp:
         self.status_text = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
         
+        # Model descriptions for UI display
+        self.model_descriptions = {
+            "laion/CLIP-ViT-H-14-laion2B-s32B-b79K": "High quality LAION model with excellent general-purpose performance",
+            "openai/clip-vit-large-patch14": "OpenAI's large CLIP model - good english language alignment",
+            "openai/clip-vit-base-patch32": "OpenAI's smaller, faster model - good for basic needs",
+            "laion/CLIP-ViT-B-32-laion2B-s34B-b79K": "Faster, smaller LAION model with good performance",
+            "OFA-Sys/chinese-clip-vit-base-patch16": "Specialized model for Chinese language text and images"
+        }
+        
         # Model and embeddings
         self.model = None
         self.processor = None

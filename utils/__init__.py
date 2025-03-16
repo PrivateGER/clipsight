@@ -11,4 +11,5 @@ from utils.model_utils import (
     save_embeddings, 
     find_images_to_process,
     process_images_batch
-) 
+)
+from utils.tooltip import ToolTip 

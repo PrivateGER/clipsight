@@ -9,6 +9,7 @@ from tkinter import ttk, filedialog, messagebox
 import threading
 import utils
 from utils.model_utils import process_images_batch
+import sv_ttk
 
 class GenerateTab:
     def __init__(self, app, notebook):
@@ -34,6 +35,14 @@ class GenerateTab:
         self.gen_progress = tk.DoubleVar(value=0)
         self.gen_status = tk.StringVar(value="Ready")
         self.gen_stop_flag = False
+        
+        self.suggested_models = [
+            "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",  # Default high quality model
+            "openai/clip-vit-large-patch14",          # OpenAI's large model
+            "openai/clip-vit-base-patch32",           # OpenAI's base model
+            "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",  # Smaller, faster LAION model
+            "OFA-Sys/chinese-clip-vit-base-patch16",  # Chinese language model
+        ]
     
     def _create_ui(self):
         """Create the UI for embedding generation tab"""
@@ -60,11 +69,47 @@ class GenerateTab:
                    command=lambda: self.gen_output.set(self.app.embeddings_file.get())).grid(
             row=1, column=3, padx=5, pady=5)
         
-        # Model
+        # Model selection with dropdown
         ttk.Label(settings_frame, text="Model:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(settings_frame, textvariable=self.gen_model, width=40).grid(row=2, column=1, sticky=tk.EW, padx=5, pady=5)
+        
+        # Create a combobox for model selection
+        model_combo = ttk.Combobox(settings_frame, textvariable=self.gen_model, width=38)
+        model_combo.grid(row=2, column=1, sticky=tk.EW, padx=5, pady=5)
+        
+        # Configure the combobox
+        model_combo['values'] = self.suggested_models
+        model_combo.configure(state="normal")  # Allow custom entries
+        
+        # Add an info button for model description
+        info_button = ttk.Button(settings_frame, text="ℹ", width=2, style="Info.TButton")
+        info_button.grid(row=2, column=2, padx=(0,5), pady=5)
+        
+        # Create tooltip for the info button
+        self.model_tooltip = utils.ToolTip(info_button, "Select a model to see its description", delay=100, wraplength=350)
+        
+        # Configure the style for info buttons
+        style = ttk.Style()
+        current_theme = sv_ttk.get_theme()
+        if current_theme == "dark":
+            style.configure("Info.TButton", font=("", 10, "bold"))
+        else:
+            style.configure("Info.TButton", font=("", 10, "bold"))
+        
         ttk.Button(settings_frame, text="Use Search Model", command=lambda: self.gen_model.set(self.app.model_name.get())).grid(
-            row=2, column=2, padx=5, pady=5)
+            row=2, column=3, padx=5, pady=5)
+        
+        # Update tooltip when model changes
+        def update_model_tooltip(*args):
+            model = self.gen_model.get()
+            if model in self.app.model_descriptions:
+                self.model_tooltip.update_text(self.app.model_descriptions[model])
+            else:
+                self.model_tooltip.update_text("Custom model")
+        
+        self.gen_model.trace_add("write", update_model_tooltip)
+        
+        # Call once to set initial tooltip
+        update_model_tooltip()
         
         # Batch size
         ttk.Label(settings_frame, text="Batch Size:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)

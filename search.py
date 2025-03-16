@@ -10,6 +10,7 @@ import threading
 import torch
 import numpy as np
 from PIL import Image
+from utils import ToolTip
 
 class SearchTab:
     def __init__(self, app, notebook):
@@ -56,14 +57,54 @@ class SearchTab:
         settings_frame = ttk.LabelFrame(parent, text="Settings", padding="5")
         settings_frame.pack(fill=tk.X, side=tk.LEFT, expand=True)
 
+        # Create a list of suggested models for the dropdown
+        self.suggested_models = [
+            "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",  # Default high quality model
+            "openai/clip-vit-large-patch14",          # OpenAI's large model
+            "openai/clip-vit-base-patch32",           # OpenAI's base model
+            "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",  # Smaller, faster LAION model
+            "OFA-Sys/chinese-clip-vit-base-patch16",  # Chinese language model
+        ]
+
         ttk.Label(settings_frame, text="Embeddings:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         ttk.Entry(settings_frame, textvariable=self.app.embeddings_file, width=40).grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
         ttk.Button(settings_frame, text="Browse...", command=self.app._browse_embeddings).grid(row=0, column=2, padx=5, pady=5)
 
         ttk.Label(settings_frame, text="Model:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        model_entry = ttk.Entry(settings_frame, textvariable=self.app.model_name, width=40)
-        model_entry.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
-        ttk.Button(settings_frame, text="Load", command=self.app._load_model).grid(row=1, column=2, padx=5, pady=5)
+        
+        # Create a combobox for model selection
+        model_combo = ttk.Combobox(settings_frame, textvariable=self.app.model_name, width=38)
+        model_combo.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
+        
+        # Configure the combobox
+        model_combo['values'] = self.suggested_models
+        model_combo.configure(state="normal")  # Allow custom entries
+        
+        # Add an info button for model description
+        info_button = ttk.Button(settings_frame, text="ℹ", width=2, style="Info.TButton")
+        info_button.grid(row=1, column=2, padx=(0,5), pady=5)
+        
+        # Create tooltip for the info button
+        self.model_tooltip = ToolTip(info_button, "Select a model to see its description", delay=100, wraplength=350)
+        
+        # Configure the style for info buttons
+        style = ttk.Style()
+        style.configure("Info.TButton", font=("", 10, "bold"))
+        
+        ttk.Button(settings_frame, text="Load", command=self.app._load_model).grid(row=1, column=3, padx=5, pady=5)
+        
+        # Update tooltip when model changes
+        def update_model_tooltip(*args):
+            model = self.app.model_name.get()
+            if model in self.app.model_descriptions:
+                self.model_tooltip.update_text(self.app.model_descriptions[model])
+            else:
+                self.model_tooltip.update_text("Custom model")
+        
+        self.app.model_name.trace_add("write", update_model_tooltip)
+        
+        # Call once to set initial tooltip
+        update_model_tooltip()
 
         ttk.Button(settings_frame, text="Load Embeddings", command=self.app._load_embeddings).grid(
             row=2, column=0, columnspan=3, padx=5, pady=5, sticky=tk.EW)
