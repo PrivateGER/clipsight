@@ -205,8 +205,33 @@ class CLIPSearchApp:
                 self.status_text.set("Loading embeddings...")
                 self.progress_var.set(10)
                 self.embeddings = load_embeddings(self.embeddings_file.get())
+                
+                # Check for model info in embeddings
+                if '_model_info' in self.embeddings:
+                    embedded_model = self.embeddings['_model_info']['name']
+                    
+                    # If models don't match, show a warning
+                    if self.model and embedded_model != self.model_name.get():
+                        # We'll use root.after to show the message box in the main thread
+                        embedded_model_name = embedded_model
+                        current_model_name = self.model_name.get()
+                        
+                        def show_model_warning():
+                            messagebox.showwarning("Model Mismatch", 
+                                                 f"The loaded embeddings were generated with model:\n{embedded_model_name}\n\n"
+                                                 f"You are currently using model:\n{current_model_name}\n\n"
+                                                 "This will lead to inconsistent search results or may not work at all."
+                                                 f"Consider switching to the model used to generate the embeddings.")
+                        
+                        self.root.after(0, show_model_warning)
+                    
+                    # Set the model name from embeddings if no model is loaded
+                    if not self.model:
+                        self.model_name.set(embedded_model)
+                        self.status_text.set(f"Set model name to match embeddings: {embedded_model}")
+                
                 self.progress_var.set(100)
-                self.status_text.set(f"Loaded {len(self.embeddings)} embeddings")
+                self.status_text.set(f"Loaded {len(self.embeddings) - ('_model_info' in self.embeddings)} embeddings")
             except Exception as e:
                 self.status_text.set(f"Error loading embeddings: {str(e)}")
                 messagebox.showerror("Error", f"Failed to load embeddings: {str(e)}")

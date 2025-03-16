@@ -253,9 +253,27 @@ class GenerateTab:
                     try:
                         existing_embeddings = utils.load_embeddings(output_path)
                         self._log(f"Loaded {len(existing_embeddings)} existing embeddings")
+                        
+                        # Check for model info and warn if different
+                        if '_model_info' in existing_embeddings and existing_embeddings['_model_info']['name'] != self.gen_model.get():
+                            previous_model = existing_embeddings['_model_info']['name']
+                            self._log(f"WARNING: Existing embeddings were generated with model: {previous_model}")
+                            self._log(f"You are now using model: {self.gen_model.get()}")
+                            self._log("This may lead to inconsistent search results due to embedding space differences.")
+                            
+                            # Show warning dialog 
+                            if not messagebox.askyesno("Model Mismatch Warning",
+                                                 f"The existing embeddings were generated with model:\n{previous_model}\n\n"
+                                                 f"You are now using model:\n{self.gen_model.get()}\n\n"
+                                                 "Mixing embeddings from different models is VERY unlikely to be wanted. "
+                                                 "Do you want to continue anyway? Please create a backup beforehand.", icon='warning'):
+                                self.gen_status.set("Generation cancelled")
+                                self._log("Embedding generation cancelled due to model mismatch")
+                                return
                     except Exception as e:
                         self._log(f"Error loading existing embeddings: {str(e)}")
                         self._log("Starting with empty embeddings")
+                        existing_embeddings = {}
                 
                 # Find images that need processing
                 self.gen_progress.set(10)
@@ -301,6 +319,14 @@ class GenerateTab:
                 new_count = len(new_embeddings)
                 existing_embeddings.update(new_embeddings)
                 
+                # Store model info in embeddings
+                existing_embeddings['_model_info'] = {
+                    'name': self.gen_model.get(),
+                    'date': utils.get_current_datetime_str(),
+                    'fp16': self.gen_fp16.get(),
+                    'batch_size': self.gen_batch_size.get()
+                }
+                
                 # Save embeddings
                 self._log(f"Saving {len(existing_embeddings)} embeddings to {output_path}...")
                 self.gen_status.set("Saving embeddings...")
@@ -309,7 +335,7 @@ class GenerateTab:
                 self.gen_status.set(f"Complete - {new_count} new embeddings generated")
                 self._log(f"Completed processing {len(to_process)} images")
                 self._log(f"New/updated embeddings: {new_count}")
-                self._log(f"Total embeddings in file: {len(existing_embeddings)}")
+                self._log(f"Total embeddings in file: {len(existing_embeddings) - 1}")  # Subtract 1 for _model_info
                 self._log(f"Embeddings saved to: {output_path}")
                 
                 # Offer to load the embeddings for search

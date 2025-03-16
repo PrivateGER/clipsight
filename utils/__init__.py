@@ -13,3 +13,8 @@ from utils.model_utils import (
     process_images_batch
 )
 from utils.tooltip import ToolTip 
+
+def get_current_datetime_str():
+    """Get current datetime as a string."""
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S") 

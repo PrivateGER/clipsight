@@ -169,7 +169,7 @@ class SearchTab:
             self.app.progress_var.set(10)
             self.app.embeddings = load_embeddings(self.app.embeddings_file.get())
             self.app.progress_var.set(100)
-            self.app.status_text.set(f"Loaded {len(self.app.embeddings)} embeddings")
+            self.app.status_text.set(f"Loaded {len(self.app.embeddings) - ('_model_info' in self.app.embeddings)} embeddings")
         except Exception as e:
             error_msg = str(e)
             self.app.status_text.set(f"Error loading embeddings: {error_msg}")
@@ -305,6 +305,18 @@ class SearchTab:
         if not self.app.embeddings:
             messagebox.showinfo("Info", "Please load embeddings first")
             return
+        
+        # Check model match (exclude the _model_info key)
+        if '_model_info' in self.app.embeddings:
+            embedded_model = self.app.embeddings['_model_info']['name']
+            current_model = self.app.model_name.get()
+            
+            if embedded_model != current_model:
+                if not messagebox.askyesno("Model Mismatch Warning", 
+                                         f"The embeddings were generated with model:\n{embedded_model}\n\n"
+                                         f"You are searching with model:\n{current_model}\n\n"
+                                         "This may lead to inaccurate search results. Continue anyway?"):
+                    return
 
         def search_task():
             try:
@@ -325,10 +337,10 @@ class SearchTab:
 
                 self.app.progress_var.set(50)
 
-                # Search for similar images
+                # Search for similar images (skip the _model_info entry)
                 similarities = []
                 for path, data in self.app.embeddings.items():
-                    if 'embedding' not in data:
+                    if path == '_model_info' or 'embedding' not in data:
                         continue
 
                     image_embedding = np.array(data['embedding'])
@@ -368,6 +380,18 @@ class SearchTab:
         if not self.app.embeddings:
             messagebox.showinfo("Info", "Please load embeddings first")
             return
+        
+        # Check model match
+        if '_model_info' in self.app.embeddings:
+            embedded_model = self.app.embeddings['_model_info']['name']
+            current_model = self.app.model_name.get()
+            
+            if embedded_model != current_model:
+                if not messagebox.askyesno("Model Mismatch Warning", 
+                                         f"The embeddings were generated with model:\n{embedded_model}\n\n"
+                                         f"You are searching with model:\n{current_model}\n\n"
+                                         "This may lead to inaccurate search results. Continue anyway?"):
+                    return
 
         def search_task():
             try:
@@ -391,10 +415,10 @@ class SearchTab:
 
                 self.app.progress_var.set(50)
 
-                # Search for similar images
+                # Search for similar images (skip the _model_info entry)
                 similarities = []
                 for path, data in self.app.embeddings.items():
-                    if 'embedding' not in data:
+                    if path == '_model_info' or 'embedding' not in data:
                         continue
 
                     image_embedding = np.array(data['embedding'])
