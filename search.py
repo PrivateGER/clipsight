@@ -11,6 +11,7 @@ import torch
 import numpy as np
 from PIL import Image
 from utils import ToolTip
+import sv_ttk
 
 class SearchTab:
     def __init__(self, app, notebook):
@@ -144,29 +145,38 @@ class SearchTab:
         search_frame.columnconfigure(1, weight=1)
 
     def _create_results_panel(self):
-        """Create the results display area"""
-        results_frame = ttk.LabelFrame(self.tab, text="Search Results", padding="5")
-        results_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Canvas for displaying image results with scrolling
-        self.canvas_frame = ttk.Frame(results_frame)
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Canvas and scrollbar
-        self.canvas = tk.Canvas(self.canvas_frame, bg="white")
-        self.scrollbar = ttk.Scrollbar(self.canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        """Create the results display panel"""
+        results_frame = ttk.Frame(self.tab)
+        results_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Create canvas with scrollbars
+        self.canvas = tk.Canvas(results_frame, bd=0, highlightthickness=0)
+        
+        # Set the canvas background based on current theme
+        theme = sv_ttk.get_theme()
+        bg_color = "#1c1c1c" if theme == "dark" else "#f0f0f0"
+        self.canvas.configure(bg=bg_color)
+        
+        self.scrollbar_y = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.scrollbar_x = ttk.Scrollbar(results_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        
+        self.canvas.configure(yscrollcommand=self.scrollbar_y.set, xscrollcommand=self.scrollbar_x.set)
+        
+        # Packing order matters for scrollbars
+        self.scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        self.scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Frame inside canvas for images
+        
+        # Frame inside canvas for results
         self.results_container = ttk.Frame(self.canvas)
         self.canvas_window = self.canvas.create_window((0, 0), window=self.results_container, anchor=tk.NW)
-
-        # Configure canvas scrolling
+        
+        # Bind events for scrolling
         self.results_container.bind("<Configure>", self._on_frame_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
+        
+        # Bind to theme changes via a special tag
+        self.canvas.bindtags((self.canvas, "ThemeAwareCanvas", "Canvas", "all"))
         
         # Bind window resize event
         self.app.root.bind("<Configure>", self._on_window_resize)
@@ -469,3 +479,9 @@ class SearchTab:
         """Handle the actual resize update after delay"""
         if self.result_paths:
             self._update_results_page() 
+
+    def update_canvas_theme(self, theme):
+        """Update canvas background based on theme"""
+        if hasattr(self, 'canvas'):
+            bg_color = "#1c1c1c" if theme == "dark" else "#f0f0f0"
+            self.canvas.configure(bg=bg_color) 

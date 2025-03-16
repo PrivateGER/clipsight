@@ -35,20 +35,25 @@ class CLIPSearchApp:
         except:
             pass
 
-        # Initialize variables
+        # Initialize config manager first
+        self.config_manager = ConfigManager()
+        
+        # Initialize variables - only init theme once here
         self._initialize_variables()
         
-        # Create UI elements
+        # Apply theme from config before creating any UI
+        self._apply_config_theme()
+        
+        # Create UI elements with theme already applied
         self._create_menu()
         self._create_layout()
-
-        # Initialize components
-        self.config_manager = ConfigManager()
+        
+        # Initialize other components
         self.thumbnail_manager = ThumbnailManager(self)
         
-        # Load last session if available
-        self._load_config()
-        
+        # Load the rest of the config
+        self._load_remaining_config()
+
     def _initialize_variables(self):
         """Initialize all the application variables"""
         # Basic variables
@@ -56,6 +61,9 @@ class CLIPSearchApp:
         self.model_name = tk.StringVar(value="laion/CLIP-ViT-H-14-laion2B-s32B-b79K")
         self.status_text = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
+        
+        # Initialize theme variable only once
+        self.theme_var = tk.StringVar(value="system")
         
         # Model descriptions for UI display
         self.model_descriptions = {
@@ -77,6 +85,30 @@ class CLIPSearchApp:
         self.auto_threshold = tk.BooleanVar(value=True)
         self.manual_threshold = tk.DoubleVar(value=0.25)
 
+    def _apply_config_theme(self):
+        """Apply theme from config"""
+        config = self.config_manager.load_config() or {}
+        theme = config.get("theme", "system")
+        
+        # Set theme variable
+        self.theme_var.set(theme)
+        
+        # Determine actual theme to use
+        actual_theme = theme
+        if theme == "system":
+            actual_theme = darkdetect.theme().lower()
+        
+        # Apply theme
+        print(f"Applying theme: {theme} (actual: {actual_theme})")
+        sv_ttk.set_theme(actual_theme)
+        
+        # Apply Windows titlebar theme
+        if sys.platform == 'win32':
+            self._update_titlebar_theme(actual_theme)
+        
+        # Apply custom styles
+        self._update_custom_styles(actual_theme)
+
     def _create_menu(self):
         """Create the application menu"""
         menubar = tk.Menu(self.root)
@@ -87,18 +119,13 @@ class CLIPSearchApp:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         menubar.add_cascade(label="File", menu=file_menu)
-        
-        # View menu for theme toggle
-        view_menu = tk.Menu(menubar, tearoff=0)
-        self.theme_var = tk.StringVar(value=sv_ttk.get_theme())  # Track current theme
-        view_menu.add_radiobutton(label="Light Theme", variable=self.theme_var, 
-                                 value="light", command=self._toggle_theme)
-        view_menu.add_radiobutton(label="Dark Theme", variable=self.theme_var,
-                                 value="dark", command=self._toggle_theme)
-        view_menu.add_separator()
-        view_menu.add_radiobutton(label="System Theme", variable=self.theme_var,
-                                 value="system", command=self._toggle_theme)
-        menubar.add_cascade(label="View", menu=view_menu)
+
+        # Theme menu - use the already initialized theme_var
+        theme_menu = tk.Menu(menubar, tearoff=0)
+        theme_menu.add_radiobutton(label="Light", variable=self.theme_var, value="light", command=self._toggle_theme)
+        theme_menu.add_radiobutton(label="Dark", variable=self.theme_var, value="dark", command=self._toggle_theme)
+        theme_menu.add_radiobutton(label="System", variable=self.theme_var, value="system", command=self._toggle_theme)
+        menubar.add_cascade(label="Theme", menu=theme_menu)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -191,18 +218,15 @@ class CLIPSearchApp:
         }
         self.config_manager.save_config(config)
 
-    def _load_config(self):
-        """Load saved configuration"""
-        config = self.config_manager.load_config()
-        if config:
-            if "embeddings_file" in config:
-                self.embeddings_file.set(config["embeddings_file"])
-            if "model_name" in config:
-                self.model_name.set(config["model_name"])
-            if "theme" in config:
-                # Set the theme variable and apply the theme
-                self.theme_var.set(config["theme"])
-                self._toggle_theme()
+    def _load_remaining_config(self):
+        """Load non-theme config settings"""
+        config = self.config_manager.load_config() or {}
+        
+        if "embeddings_file" in config:
+            self.embeddings_file.set(config["embeddings_file"])
+        
+        if "model_name" in config:
+            self.model_name.set(config["model_name"])
 
     def _show_about(self):
         """Show about dialog"""
@@ -222,36 +246,58 @@ Supports both text-based and image-based queries.
         requested_theme = self.theme_var.get()
         
         # Handle "system" theme option
+        actual_theme = requested_theme
         if requested_theme == "system":
-            requested_theme = darkdetect.theme().lower()
+            actual_theme = darkdetect.theme().lower()
+        
+        # Print debug info
+        print(f"Toggling theme to: {requested_theme} (actual: {actual_theme})")
         
         # Set the theme
-        sv_ttk.set_theme(requested_theme)
+        sv_ttk.set_theme(actual_theme)
         
         # Update Windows-specific title bar if applicable
-        if sys.platform == 'win32' and 'apply_theme_to_titlebar' in globals():
+        if sys.platform == 'win32':
+            self._update_titlebar_theme(actual_theme)
+        
+        # Update all custom styled elements
+        self._update_custom_styles(actual_theme)
+        
+        # Save the theme preference to config
+        self._save_config()
+
+    def _update_titlebar_theme(self, theme):
+        """Update Windows titlebar theme"""
+        try:
             import pywinstyles
-            def apply_theme_to_titlebar(root):
-                version = sys.getwindowsversion()
+            version = sys.getwindowsversion()
 
-                if version.major == 10 and version.build >= 22000:
-                    # Set the title bar color to the background color on Windows 11 for better appearance
-                    pywinstyles.change_header_color(root, "#1c1c1c" if sv_ttk.get_theme() == "dark" else "#fafafa")
-                elif version.major == 10:
-                    pywinstyles.apply_style(root, "dark" if sv_ttk.get_theme() == "dark" else "normal")
+            if version.major == 10 and version.build >= 22000:
+                # Set the title bar color to the background color on Windows 11
+                header_color = "#1c1c1c" if theme == "dark" else "#fafafa"
+                pywinstyles.change_header_color(self.root, header_color)
+            elif version.major == 10:
+                pywinstyles.apply_style(self.root, "dark" if theme == "dark" else "normal")
 
-                    # A hacky way to update the title bar's color on Windows 10 (it doesn't update instantly like on Windows 11)
-                    root.wm_attributes("-alpha", 0.99)
-                    root.wm_attributes("-alpha", 1)
-            apply_theme_to_titlebar(self.root)
+                # A hacky way to update the title bar's color on Windows 10
+                self.root.wm_attributes("-alpha", 0.99)
+                self.root.wm_attributes("-alpha", 1)
+        except (ImportError, Exception) as e:
+            print(f"Error updating titlebar theme: {e}")
+
+    def _update_custom_styles(self, theme):
+        """Update all custom styles to match the current theme"""
+        style = ttk.Style()
+        
+        # Info buttons
+        style.configure("Info.TButton", font=("", 10, "bold"))
         
         # Update canvas backgrounds
         for widget in self.root.winfo_children():
             if isinstance(widget, tk.Canvas):
-                if requested_theme == "dark":
-                    widget.configure(bg="#1c1c1c")
-                else:
-                    widget.configure(bg="#f0f0f0")
+                bg_color = "#1c1c1c" if theme == "dark" else "#f0f0f0"
+                widget.configure(bg=bg_color)
         
-        # Save the theme preference to config
-        self._save_config() 
+        # Update search tab canvas
+        if hasattr(self, 'search_tab') and hasattr(self.search_tab, 'update_canvas_theme'):
+            self.search_tab.update_canvas_theme(theme) 

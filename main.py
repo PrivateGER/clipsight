@@ -31,12 +31,4 @@ if sys.platform == 'win32':
 if __name__ == "__main__":
     root = tk.Tk()
     app = CLIPSearchApp(root)
-    
-    # Apply theme
-    sv_ttk.set_theme(darkdetect.theme())
-    
-    # Apply Windows-specific titlebar styling if on Windows
-    if sys.platform == 'win32':
-        apply_theme_to_titlebar(root)
-    
     root.mainloop()
