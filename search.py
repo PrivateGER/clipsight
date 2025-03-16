@@ -360,8 +360,7 @@ class SearchTab:
             self.results_per_page
         )
         
-        # Update page label
-        total_pages = max(1, (len(self.result_paths) - 1) // self.results_per_page + 1)
+        total_pages = (len(self.result_paths) + self.results_per_page - 1) // self.results_per_page
         self.page_label.config(text=f"Page {self.current_page + 1} of {total_pages}")
 
     def _clear_results(self):
@@ -388,7 +387,7 @@ class SearchTab:
 
     def _next_page(self):
         """Go to next page of results"""
-        max_page = (len(self.result_paths) - 1) // self.results_per_page
+        max_page = (len(self.result_paths) + self.results_per_page - 1) // self.results_per_page - 1
         if self.current_page < max_page:
             self.current_page += 1
             self._update_results_page()
