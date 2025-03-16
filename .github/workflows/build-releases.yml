@@ -90,48 +90,29 @@ jobs:
         run: |
           choco install 7zip -y
       
-      - name: Create archive and split if needed
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          # First create a standard zip for compatibility
-          Compress-Archive -Path CLIPsight -DestinationPath CLIPsight-windows.zip
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-windows.7z CLIPsight
           
-          # Check if size is over 2GB
-          $filesize = (Get-Item CLIPsight-windows.zip).Length
-          $maxsize = 2GB
-          
-          if ($filesize -gt $maxsize) {
-            Write-Host "File size is over 2GB, creating multi-part archive with 7-Zip"
-            # Remove the standard zip
-            Remove-Item CLIPsight-windows.zip
-            
-            # Create multi-part 7z archive with 1.9GB parts
-            7z a -v1900m CLIPsight-windows.7z CLIPsight
-            
-            # Get all parts
-            $parts = Get-ChildItem -Filter "CLIPsight-windows.7z.*"
-            foreach ($part in $parts) {
-              # Upload each part
-              7z t $part.Name # Verify the archive
-            }
-          }
+          # Test the archive
+          7z t CLIPsight-windows.7z.001
       
       - name: Upload Release Asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd dist
-          # Check if we have multi-part archives
-          if (Test-Path "CLIPsight-windows.7z.001") {
-            # Upload each part
-            $parts = Get-ChildItem -Filter "CLIPsight-windows.7z.*"
+          # Upload each part - it will be 1 part if small, multiple if large
+          $parts = Get-ChildItem -Filter "CLIPsight-windows.7z.*"
+          if ($parts.Count -gt 0) {
             foreach ($part in $parts) {
-              $partname = $part.Name -replace "CLIPsight-windows", "CLIPsight-${{ needs.create-release.outputs.version }}-windows"
               gh release upload ${{ needs.create-release.outputs.version }} $part.Name --clobber --repo ${{ github.repository }}
             }
           } else {
-            # Upload the single zip
-            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-windows.zip --clobber --repo ${{ github.repository }}
+            # Upload the single file if no parts created
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-windows.7z --clobber --repo ${{ github.repository }}
           }
 
   build-macos:
@@ -173,27 +154,14 @@ jobs:
             pyinstaller --name CLIPsight --onedir --windowed main.py
           fi
       
-      - name: Create archive and split if needed
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          # First create a standard zip
-          zip -r CLIPsight-macos.zip CLIPsight.app
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-macos.7z CLIPsight.app
           
-          # Check if size is over 2GB
-          FILESIZE=$(stat -f%z "CLIPsight-macos.zip")
-          MAXSIZE=2147483648 # 2GB in bytes
-          
-          if [ $FILESIZE -gt $MAXSIZE ]; then
-            echo "File size is over 2GB, creating multi-part archive with 7-Zip"
-            # Remove the standard zip
-            rm CLIPsight-macos.zip
-            
-            # Create multi-part 7z archive with 1.9GB parts
-            7z a -v1900m CLIPsight-macos.7z CLIPsight.app
-            
-            # Test the archive
-            7z t CLIPsight-macos.7z
-          fi
+          # Test the archive
+          7z t CLIPsight-macos.7z.001 || 7z t CLIPsight-macos.7z
       
       - name: Upload Release Asset
         env:
@@ -204,12 +172,11 @@ jobs:
           if [ -f "CLIPsight-macos.7z.001" ]; then
             # Upload each part
             for part in CLIPsight-macos.7z.*; do
-              partname="${part/CLIPsight-macos/CLIPsight-${{ needs.create-release.outputs.version }}-macos}"
               gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
             done
           else
-            # Upload the single zip
-            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-macos.zip --clobber --repo ${{ github.repository }}
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-macos.7z --clobber --repo ${{ github.repository }}
           fi
 
   build-windows-cpu:
@@ -250,20 +217,21 @@ jobs:
             pyinstaller --name CLIPsight-cpu --onedir --windowed main.py
           }
       
-      - name: Zip directory
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          Compress-Archive -Path CLIPsight-cpu -DestinationPath CLIPsight-windows-cpu.zip
+          # Create 7z archive
+          7z a CLIPsight-windows-cpu.7z CLIPsight-cpu
+          
+          # Test the archive
+          7z t CLIPsight-windows-cpu.7z
       
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/CLIPsight-windows-cpu.zip
-          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-windows-cpu.zip
-          asset_content_type: application/zip
+        run: |
+          cd dist
+          gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-windows-cpu.7z --clobber --repo ${{ github.repository }}
 
   build-linux:
     needs: create-release
@@ -307,20 +275,31 @@ jobs:
             pyinstaller --name CLIPsight-cpu --onedir --windowed main.py
           fi
       
-      - name: Create zip archive
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          zip -r CLIPsight-linux-cpu.zip CLIPsight-cpu
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-linux.7z CLIPsight
+          
+          # Test the archive
+          7z t CLIPsight-linux.7z.001
       
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/CLIPsight-linux-cpu.zip
-          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-linux-cpu.zip
-          asset_content_type: application/zip
+        run: |
+          cd dist
+          # Check if we have multi-part archives
+          if [ -f "CLIPsight-linux.7z.001" ]; then
+            # Upload each part
+            for part in CLIPsight-linux.7z.*; do
+              partname="${part/CLIPsight-linux/CLIPsight-${{ needs.create-release.outputs.version }}-linux}"
+              gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
+            done
+          else
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-linux.7z --clobber --repo ${{ github.repository }}
+          fi
 
   build-linux-rocm:
     needs: create-release
@@ -364,20 +343,30 @@ jobs:
             pyinstaller --name CLIPsight-rocm --onedir --windowed main.py
           fi
       
-      - name: Create zip archive
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          zip -r CLIPsight-linux-rocm.zip CLIPsight-rocm
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-linux-rocm.7z CLIPsight-rocm
+          
+          # Test the archive
+          7z t CLIPsight-linux-rocm.7z.001
       
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/CLIPsight-linux-rocm.zip
-          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-linux-rocm.zip
-          asset_content_type: application/zip
+        run: |
+          cd dist
+          # Check if we have multi-part archives
+          if [ -f "CLIPsight-linux-rocm.7z.001" ]; then
+            # Upload each part
+            for part in CLIPsight-linux-rocm.7z.*; do
+              gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
+            done
+          else
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-linux-rocm.7z --clobber --repo ${{ github.repository }}
+          fi
           
   build-linux-cpu:
     needs: create-release
@@ -419,27 +408,14 @@ jobs:
             pyinstaller --name CLIPsight --onedir --windowed main.py
           fi
       
-      - name: Create archive and split if needed
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          # First create a standard zip
-          zip -r CLIPsight-linux.zip CLIPsight
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-linux.7z CLIPsight
           
-          # Check if size is over 2GB
-          FILESIZE=$(stat -c%s "CLIPsight-linux.zip")
-          MAXSIZE=2147483648 # 2GB in bytes
-          
-          if [ $FILESIZE -gt $MAXSIZE ]; then
-            echo "File size is over 2GB, creating multi-part archive with 7-Zip"
-            # Remove the standard zip
-            rm CLIPsight-linux.zip
-            
-            # Create multi-part 7z archive with 1.9GB parts
-            7z a -v1900m CLIPsight-linux.7z CLIPsight
-            
-            # Test the archive
-            7z t CLIPsight-linux.7z
-          fi
+          # Test the archive
+          7z t CLIPsight-linux.7z.001
       
       - name: Upload Release Asset
         env:
@@ -454,6 +430,6 @@ jobs:
               gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
             done
           else
-            # Upload the single zip
-            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-linux.zip --clobber --repo ${{ github.repository }}
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-linux.7z --clobber --repo ${{ github.repository }}
           fi
