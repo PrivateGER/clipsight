@@ -26,6 +26,7 @@ import utils
 import time
 import generate  # Import the generate module for batch processing functions
 import numpy as np
+import hashlib
 
 class CLIPSearchApp:
     def __init__(self, root):
@@ -59,6 +60,16 @@ class CLIPSearchApp:
         self.current_page = 0
         self.results_per_page = 30
         self.thumbnails = []
+
+        # Add cache for search results
+        self.cached_results = []  # Store full search results
+
+        # Add thumbnail cache and persistence
+        self.thumbnail_cache = {}  # Store PhotoImage objects by path
+        self.thumbnail_load_queue = []  # Queue for lazy loading
+        self.is_loading_thumbnails = False
+        self.thumbnail_dir = os.path.join(os.path.expanduser("~"), ".clip_search", "thumbnails")
+        os.makedirs(self.thumbnail_dir, exist_ok=True)
 
         # Create UI elements
         self._create_menu()
@@ -386,14 +397,12 @@ class CLIPSearchApp:
                 # Generate text embedding
                 inputs = self.tokenizer([query], padding=True, return_tensors="pt")
 
-                # Move to GPU if available
                 if torch.cuda.is_available():
                     inputs = {k: v.cuda() for k, v in inputs.items()}
 
                 with torch.no_grad():
                     text_features = self.model.get_text_features(**inputs)
                     text_embedding = text_features.cpu().numpy()[0]
-                    # Normalize
                     text_embedding = text_embedding / np.linalg.norm(text_embedding)
 
                 self.progress_var.set(50)
@@ -405,30 +414,37 @@ class CLIPSearchApp:
                         continue
 
                     image_embedding = np.array(data['embedding'])
-                    # In case the stored embedding is not normalized
                     image_embedding = image_embedding / np.linalg.norm(image_embedding)
-
                     similarity = np.dot(text_embedding, image_embedding)
                     similarities.append((path, similarity))
 
-                # Sort by similarity (highest first)
+                # Sort by similarity
                 similarities.sort(key=lambda x: x[1], reverse=True)
 
                 self.progress_var.set(90)
 
-                # Get top results
-                top_n = self.num_results.get()
-                self.result_paths = [(path, score) for path, score in similarities[:top_n]]
-
-                # Update UI on the main thread
-                self.root.after(0, self._display_results)
+                # Store all results in cache
+                self.cached_results = similarities
+                
+                # Update display with current page
+                self._update_displayed_results()
+                
                 self.progress_var.set(100)
-                self.status_text.set(f"Found {len(self.result_paths)} results for '{query}'")
+                self.status_text.set(f"Found {len(similarities)} results for '{query}'")
+                
             except Exception as e:
                 self.status_text.set(f"Error during search: {str(e)}")
                 messagebox.showerror("Error", f"Search failed: {str(e)}")
 
         threading.Thread(target=search_task, daemon=True).start()
+
+    def _update_displayed_results(self):
+        """Update the result_paths based on current page and num_results"""
+        start_idx = 0
+        end_idx = self.num_results.get()
+        self.result_paths = self.cached_results[start_idx:end_idx]
+        self.current_page = 0
+        self._update_results_page()
 
     def _image_search(self):
         if not os.path.isfile(self.query_image.get()):
@@ -510,6 +526,10 @@ class CLIPSearchApp:
         self._update_results_page()
 
     def _update_results_page(self):
+        # Cancel any pending thumbnail loads
+        self.thumbnail_load_queue = []
+        self.is_loading_thumbnails = False
+        
         # Clear current page
         for widget in self.results_container.winfo_children():
             widget.destroy()
@@ -521,81 +541,156 @@ class CLIPSearchApp:
         total_pages = max(1, (len(self.result_paths) - 1) // self.results_per_page + 1)
         self.page_label.config(text=f"Page {self.current_page + 1} of {total_pages}")
 
-        # Calculate number of columns based on window width with better space utilization
+        # Calculate layout
         container_width = self.canvas.winfo_width()
-        scrollbar_width = 20  # Standard scrollbar width
-        available_width = container_width - scrollbar_width  # Account for scrollbar
-        thumbnail_width = 200  # Base image width
-        padding = 10  # Total horizontal padding per thumbnail (5px on each side)
-        min_spacing = 5  # Minimum spacing between thumbnails
+        scrollbar_width = 20
+        available_width = container_width - scrollbar_width
+        thumbnail_width = 200
+        padding = 10
+        min_spacing = 5
         
-        # Calculate how many thumbnails can fit with minimum spacing
         columns = max(1, (available_width + min_spacing) // (thumbnail_width + padding + min_spacing))
-        
-        # Calculate actual spacing to distribute remaining width evenly
         remaining_width = available_width - (columns * (thumbnail_width + padding))
         extra_spacing = remaining_width // (columns + 1) if columns > 1 else 0
         
-        # Configure grid columns to be equal width
         for i in range(columns):
             self.results_container.grid_columnconfigure(i, weight=1)
-        
-        self.thumbnails = []  # Clear current thumbnail references
 
+        # Create placeholder frames first
         for i, (path, score) in enumerate(self.result_paths[start_idx:end_idx]):
             row = i // columns
             col = i % columns
 
+            # Create frame for each image
+            img_frame = ttk.Frame(self.results_container)
+            img_frame.grid(row=row, column=col, padx=(extra_spacing + 5), pady=5, sticky=tk.NW)
+
+            # Create placeholder
+            placeholder_label = ttk.Label(img_frame, text="Loading...", width=20, anchor="center")
+            placeholder_label.pack(pady=80)  # Center vertically in space of thumbnail
+
+            # Add to load queue
+            self.thumbnail_load_queue.append((path, score, img_frame, placeholder_label))
+
+        # Start loading thumbnails if not already loading
+        if not self.is_loading_thumbnails:
+            self._load_next_thumbnail()
+
+    def _get_thumbnail_path(self, image_path):
+        """Get path for cached thumbnail"""
+        # Create hash of original path to use as filename
+        path_hash = hashlib.md5(image_path.encode()).hexdigest()
+        return os.path.join(self.thumbnail_dir, f"{path_hash}.webp")
+
+    def _load_next_thumbnail(self):
+        """Load next thumbnail from queue"""
+        if not self.thumbnail_load_queue:
+            self.is_loading_thumbnails = False
+            return
+
+        self.is_loading_thumbnails = True
+        path, score, img_frame, placeholder = self.thumbnail_load_queue.pop(0)
+
+        def load_and_display():
             try:
-                # Create frame for each image
-                img_frame = ttk.Frame(self.results_container)
-                # Add the calculated extra spacing to the padding
-                img_frame.grid(row=row, column=col, 
-                             padx=(extra_spacing + 5), pady=5, 
-                             sticky=tk.NW)
+                # Check if widgets still exist
+                try:
+                    if not img_frame.winfo_exists() or not placeholder.winfo_exists():
+                        return
+                except tk.TclError:
+                    return
 
-                # Open and resize image for thumbnail
-                img = Image.open(path)  # Use absolute path directly
-                img.thumbnail((200, 200))
-
-                # Convert to PhotoImage and keep a reference
-                photo = ImageTk.PhotoImage(img)
-                self.thumbnails.append(photo)  # Keep reference to prevent garbage collection
-
-                # Create label for image
-                img_label = ttk.Label(img_frame, image=photo)
-                img_label.pack()
-
-                # Add filename and score labels
-                name_label = ttk.Label(img_frame, text=os.path.basename(path), wraplength=180)
-                name_label.pack()
-                score_label = ttk.Label(img_frame, text=f"Score: {score:.4f}")
-                score_label.pack()
-
-                # Bind click event to open image
-                img_label.bind("<Button-1>", lambda e, path=path: self._open_image(path))
+                # Get cached thumbnail path
+                thumb_path = self._get_thumbnail_path(path)
                 
-                # Add right-click context menu for more actions
-                img_context_menu = tk.Menu(img_label, tearoff=0)
-                img_context_menu.add_command(label="Open Image", 
-                                           command=lambda p=path: self._open_image(p))
-                img_context_menu.add_command(label="Search Similar Images", 
-                                           command=lambda p=path: self._search_by_result(p))
-                
-                def show_context_menu(event, menu=img_context_menu):
-                    menu.tk_popup(event.x_root, event.y_root)
-                    
-                img_label.bind("<Button-3>", show_context_menu)  # Right-click
-                if sys.platform == 'darwin':  # macOS
-                    img_label.bind("<Button-2>", show_context_menu)  # Control+click
+                # Check if thumbnail is already cached in memory
+                if path in self.thumbnail_cache:
+                    photo = self.thumbnail_cache[path]
+                else:
+                    try:
+                        # Try to load from disk cache first
+                        if os.path.exists(thumb_path):
+                            img = Image.open(thumb_path)
+                        else:
+                            # Generate and save thumbnail
+                            img = Image.open(path).convert('RGB')
+                            img.thumbnail((200, 200))
+                            img.save(thumb_path, 'WEBP', quality=85, method=6)
+                        
+                        # Convert to PhotoImage
+                        photo = ImageTk.PhotoImage(img)
+                        self.thumbnail_cache[path] = photo
+                    except Exception as e:
+                        print(f"Error creating thumbnail for {path}: {e}")
+                        raise
+
+                # Double check frame still exists
+                if not img_frame.winfo_exists():
+                    return
+
+                # Schedule UI updates on main thread
+                def update_ui():
+                    try:
+                        # Remove placeholder
+                        try:
+                            placeholder.destroy()
+                        except tk.TclError:
+                            pass
+
+                        # Create and pack image label
+                        img_label = ttk.Label(img_frame, image=photo)
+                        img_label.pack()
+
+                        # Add filename and score labels
+                        name_label = ttk.Label(img_frame, text=os.path.basename(path), wraplength=180)
+                        name_label.pack()
+                        score_label = ttk.Label(img_frame, text=f"Score: {score:.4f}")
+                        score_label.pack()
+
+                        # Bind click events
+                        img_label.bind("<Button-1>", lambda e, path=path: self._open_image(path))
+                        
+                        # Add context menu
+                        img_context_menu = tk.Menu(img_label, tearoff=0)
+                        img_context_menu.add_command(label="Open Image", 
+                                                   command=lambda p=path: self._open_image(p))
+                        img_context_menu.add_command(label="Search Similar Images", 
+                                                   command=lambda p=path: self._search_by_result(p))
+                        
+                        def show_context_menu(event, menu=img_context_menu):
+                            menu.tk_popup(event.x_root, event.y_root)
+                            
+                        img_label.bind("<Button-3>", show_context_menu)
+                        if sys.platform == 'darwin':
+                            img_label.bind("<Button-2>", show_context_menu)
+                    except Exception as e:
+                        if img_frame.winfo_exists():
+                            error_label = ttk.Label(img_frame, text=f"Error: {str(e)}\n{path}", wraplength=180)
+                            error_label.pack(padx=10, pady=10)
+                    finally:
+                        self.root.after(10, self._load_next_thumbnail)
+
+                self.root.after(0, update_ui)
 
             except Exception as e:
-                # Display error for failed thumbnails
-                error_frame = ttk.Frame(self.results_container)
-                error_frame.grid(row=row, column=col, padx=5, pady=5, sticky=tk.NW)
+                def show_error():
+                    try:
+                        if img_frame.winfo_exists():
+                            try:
+                                placeholder.destroy()
+                            except tk.TclError:
+                                pass
+                            error_label = ttk.Label(img_frame, text=f"Error: {str(e)}\n{path}", wraplength=180)
+                            error_label.pack(padx=10, pady=10)
+                    except tk.TclError:
+                        pass
+                    finally:
+                        self.root.after(10, self._load_next_thumbnail)
 
-                error_label = ttk.Label(error_frame, text=f"Error: {str(e)}\n{path}", wraplength=180)
-                error_label.pack(padx=10, pady=10)
+                self.root.after(0, show_error)
+
+        # Start thread for loading image
+        threading.Thread(target=load_and_display, daemon=True).start()
 
     def _prev_page(self):
         if self.current_page > 0:
@@ -608,24 +703,29 @@ class CLIPSearchApp:
             self.current_page += 1
             self._update_results_page()
         else:
-            # We're on the last page. Try to load more results
+            # We're on the last page. Try to load more results from cache
             current_count = self.num_results.get()
-            # Add 20 more results
-            self.num_results.set(current_count + 20)
+            new_count = current_count + 20
             
-            # Perform the search again with increased result count
-            if self.query_text.get().strip():
-                self._text_search()
-            elif self.query_image.get():
-                self._image_search()
-            
-            # The new search will reset to page 1, so we need to go back to where we were
-            self.current_page = max_page
-            self.root.after(100, self._update_results_page)  # Small delay to ensure results are updated
+            # Check if we have more results in cache
+            if new_count <= len(self.cached_results):
+                self.num_results.set(new_count)
+                self.result_paths = self.cached_results[:new_count]
+                self.current_page = max_page
+                self._update_results_page()
+            else:
+                # Only perform new search if we need more results than cached
+                self.num_results.set(new_count)
+                if self.query_text.get().strip():
+                    self._text_search()
+                elif self.query_image.get():
+                    self._image_search()
 
     def _clear_results(self):
         self.result_paths = []
-        self.thumbnails = []
+        self.cached_results = []
+        self.thumbnail_cache.clear()  # Clear thumbnail cache
+        self.thumbnail_load_queue = []
         self.current_page = 0
 
         # Clear display
@@ -634,6 +734,17 @@ class CLIPSearchApp:
 
         self.page_label.config(text="Page 1")
         self.status_text.set("Results cleared")
+
+        # Optionally clear disk cache if it's getting too large
+        cache_size = sum(os.path.getsize(os.path.join(self.thumbnail_dir, f)) for f in os.listdir(self.thumbnail_dir))
+        max_cache_size = 500 * 1024 * 1024  # 500MB
+        
+        if cache_size > max_cache_size:
+            try:
+                for f in os.listdir(self.thumbnail_dir):
+                    os.remove(os.path.join(self.thumbnail_dir, f))
+            except Exception as e:
+                print(f"Error clearing thumbnail cache: {e}")
 
     def _open_image(self, image_path):
         """Open the image in the default image viewer"""
@@ -874,7 +985,7 @@ Supports both text-based and image-based queries.
 
     def _on_window_resize(self, event):
         # Only respond to root window resizing, not child widgets
-        if event.widget == self.root:
+        if event.widget == self.root and self.result_paths:
             # Avoid excessive updates by adding a small delay
             if hasattr(self, "_resize_timer"):
                 self.root.after_cancel(self._resize_timer)
