@@ -2,12 +2,14 @@ name: Build and Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       release_id: ${{ steps.create_release.outputs.id }}
       upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -34,16 +36,25 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           release_name: CLIPsight ${{ steps.version.outputs.version }}
           draft: false
-          prerelease: true
+          prerelease: false
           body: |
             Automated build from commit ${{ github.sha }}
             Generated on ${{ github.event.repository.updated_at }}
             
             This is an automated release built with PyInstaller.
+            Select the files applicable to your platform and hardware.
+            Nvidia GPU = CUDA
+            AMD GPU = ROCm
+            CPU is slow and should be avoided.
+
+            Some files may be over 2GB, in which case they will be split into multiple parts.
+            You will need to upload each part separately.
 
   build-windows:
     needs: create-release
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -55,33 +66,60 @@ jobs:
           cache: 'pip'
       
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: |          
+          # Install PyTorch with CUDA support
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
           pip install pyinstaller
       
       - name: Build with PyInstaller
         run: |
-          pyinstaller --name CLIPsight --onedir --windowed --icon=search_icon.ico --add-data "search_icon.ico;." main.py
+          # Check if icon file exists and modify command accordingly
+          if (Test-Path "search_icon.ico") {
+            pyinstaller --name CLIPsight --onedir --windowed --icon=search_icon.ico --add-data "search_icon.ico;." main.py
+          } else {
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight --onedir --windowed main.py
+          }
       
-      - name: Zip directory
+      - name: Install 7-Zip
+        run: |
+          choco install 7zip -y
+      
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          Compress-Archive -Path CLIPsight -DestinationPath CLIPsight-windows.zip
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-windows.7z CLIPsight
+          
+          # Test the archive
+          7z t CLIPsight-windows.7z.001
       
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/CLIPsight-windows.zip
-          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-windows.zip
-          asset_content_type: application/zip
+        run: |
+          cd dist
+          # Upload each part - it will be 1 part if small, multiple if large
+          $parts = Get-ChildItem -Filter "CLIPsight-windows.7z.*"
+          if ($parts.Count -gt 0) {
+            foreach ($part in $parts) {
+              gh release upload ${{ needs.create-release.outputs.version }} $part.Name --clobber --repo ${{ github.repository }}
+            }
+          } else {
+            # Upload the single file if no parts created
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-windows.7z --clobber --repo ${{ github.repository }}
+          }
 
   build-macos:
     needs: create-release
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -95,31 +133,57 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          brew install p7zip
+          
+          # Install PyTorch (CPU version for macOS)
+          pip install torch torchvision torchaudio
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
           pip install pyinstaller
       
       - name: Build with PyInstaller
         run: |
-          pyinstaller --name CLIPsight --onedir --windowed main.py
+          # Check if icon file exists and modify command accordingly
+          if [ -f "search_icon.ico" ]; then
+            pyinstaller --name CLIPsight --onedir --windowed --icon=search_icon.ico main.py
+          else
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight --onedir --windowed main.py
+          fi
       
-      - name: Create zip archive
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          zip -r CLIPsight-macos.zip CLIPsight.app
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-macos.7z CLIPsight.app
+          
+          # Test the archive
+          7z t CLIPsight-macos.7z.001 || 7z t CLIPsight-macos.7z
       
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/CLIPsight-macos.zip
-          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-macos.zip
-          asset_content_type: application/zip
+        run: |
+          cd dist
+          # Check if we have multi-part archives
+          if [ -f "CLIPsight-macos.7z.001" ]; then
+            # Upload each part
+            for part in CLIPsight-macos.7z.*; do
+              gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
+            done
+          else
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-macos.7z --clobber --repo ${{ github.repository }}
+          fi
 
-  build-linux:
+  build-windows-cpu:
     needs: create-release
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -133,26 +197,238 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          
+          # Install PyTorch CPU-only version
+          pip install torch torchvision torchaudio
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
+          pip install pyinstaller
+      
+      - name: Build with PyInstaller
+        run: |
+          # Check if icon file exists and modify command accordingly
+          if (Test-Path "search_icon.ico") {
+            pyinstaller --name CLIPsight-cpu --onedir --windowed --icon=search_icon.ico --add-data "search_icon.ico;." main.py
+          } else {
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight-cpu --onedir --windowed main.py
+          }
+      
+      - name: Create archive with 7-Zip
+        run: |
+          cd dist
+          # Create 7z archive
+          7z a CLIPsight-windows-cpu.7z CLIPsight-cpu
+          
+          # Test the archive
+          7z t CLIPsight-windows-cpu.7z
+      
+      - name: Upload Release Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-windows-cpu.7z --clobber --repo ${{ github.repository }}
+
+  build-linux:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          
+          # Install PyTorch with CUDA support
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
+          pip install pyinstaller
+          
+          # Install Linux GUI dependencies and 7zip
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 p7zip-full
+      
+      - name: Build with PyInstaller
+        run: |
+          # Check if icon file exists and modify command accordingly
+          if [ -f "search_icon.ico" ]; then
+            pyinstaller --name CLIPsight-cuda --onedir --windowed --icon=search_icon.ico main.py
+          else
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight-cuda --onedir --windowed main.py
+          fi
+      
+      - name: Create archive with 7-Zip
+        run: |
+          cd dist
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-linux-cuda.7z CLIPsight-cuda
+          
+          # Test the archive
+          7z t CLIPsight-linux-cuda.7z.001 || 7z t CLIPsight-linux-cuda.7z
+      
+      - name: Upload Release Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          # Check if we have multi-part archives
+          if [ -f "CLIPsight-linux-cuda.7z.001" ]; then
+            # Upload each part
+            for part in CLIPsight-linux-cuda.7z.*; do
+              gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
+            done
+          else
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-linux-cuda.7z --clobber --repo ${{ github.repository }}
+          fi
+
+  build-linux-rocm:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          
+          # Install PyTorch with ROCm support
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.4.2
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
+          pip install pyinstaller
+          
+          # Install Linux GUI dependencies
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
+      
+      - name: Build with PyInstaller
+        run: |
+          # Check if icon file exists and modify command accordingly
+          if [ -f "search_icon.ico" ]; then
+            pyinstaller --name CLIPsight-rocm --onedir --windowed --icon=search_icon.ico main.py
+          else
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight-rocm --onedir --windowed main.py
+          fi
+      
+      - name: Create archive with 7-Zip
+        run: |
+          cd dist
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-linux-rocm.7z CLIPsight-rocm
+          
+          # Test the archive
+          7z t CLIPsight-linux-rocm.7z.001
+      
+      - name: Upload Release Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          # Check if we have multi-part archives
+          if [ -f "CLIPsight-linux-rocm.7z.001" ]; then
+            # Upload each part
+            for part in CLIPsight-linux-rocm.7z.*; do
+              gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
+            done
+          else
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-linux-rocm.7z --clobber --repo ${{ github.repository }}
+          fi
+          
+  build-linux-cpu:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          
+          # Install PyTorch CPU-only version
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          
+          # Install other dependencies from requirements.txt
+          pip install -r requirements.txt --no-deps -e . || pip install -r requirements.txt --no-deps
+          
+          # Install PyInstaller
           pip install pyinstaller
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
       
       - name: Build with PyInstaller
         run: |
-          pyinstaller --name CLIPsight --onedir --windowed main.py
+          # Check if icon file exists and modify command accordingly
+          if [ -f "search_icon.ico" ]; then
+            pyinstaller --name CLIPsight --onedir --windowed --icon=search_icon.ico main.py
+          else
+            echo "search_icon.ico not found, building without icon"
+            pyinstaller --name CLIPsight --onedir --windowed main.py
+          fi
       
-      - name: Create zip archive
+      - name: Create archive with 7-Zip
         run: |
           cd dist
-          zip -r CLIPsight-linux.zip CLIPsight
+          # Create multi-part 7z archive with 1.9GB parts
+          7z a -v1900m CLIPsight-linux.7z CLIPsight
+          
+          # Test the archive
+          7z t CLIPsight-linux.7z.001
       
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/CLIPsight-linux.zip
-          asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-linux.zip
-          asset_content_type: application/zip
+        run: |
+          cd dist
+          # Check if we have multi-part archives
+          if [ -f "CLIPsight-linux.7z.001" ]; then
+            # Upload each part
+            for part in CLIPsight-linux.7z.*; do
+              partname="${part/CLIPsight-linux/CLIPsight-${{ needs.create-release.outputs.version }}-linux}"
+              gh release upload ${{ needs.create-release.outputs.version }} "$part" --clobber --repo ${{ github.repository }}
+            done
+          else
+            # Upload the single file
+            gh release upload ${{ needs.create-release.outputs.version }} CLIPsight-linux.7z --clobber --repo ${{ github.repository }}
+          fi
