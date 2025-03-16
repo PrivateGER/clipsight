@@ -56,7 +56,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip-win'
+          cache: 'pip'
       
       - name: Install dependencies
         run: |
@@ -142,7 +142,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip-macos'
+          cache: 'pip'
       
       - name: Install dependencies
         run: |
@@ -220,7 +220,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip-win'
+          cache: 'pip'
       
       - name: Install dependencies
         run: |
@@ -273,7 +273,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip-linux'
+          cache: 'pip'
       
       - name: Install dependencies
         run: |
@@ -330,7 +330,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip-linux'
+          cache: 'pip'
       
       - name: Install dependencies
         run: |
@@ -387,7 +387,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip-linux'
+          cache: 'pip'
       
       - name: Install dependencies
         run: |
