@@ -8,8 +8,11 @@ import sys
 import hashlib
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
+
+import utils
+
 
 class ThumbnailManager:
     def __init__(self, app):
@@ -154,6 +157,9 @@ class ThumbnailManager:
                                                command=lambda p=path: self._open_image(p))
                     img_context_menu.add_command(label="Search Similar Images", 
                                                command=lambda p=path: self._search_by_result(p))
+                    img_context_menu.add_separator()
+                    img_context_menu.add_command(label="Delete from Index", 
+                                               command=lambda p=path: self._delete_from_index(p))
                     
                     def show_context_menu(event, menu=img_context_menu):
                         menu.tk_popup(event.x_root, event.y_root)
@@ -228,4 +234,72 @@ class ThumbnailManager:
                     pass
                 
         except Exception as e:
-            print(f"Error cleaning thumbnail cache: {e}") 
+            print(f"Error cleaning thumbnail cache: {e}")
+    
+    def _delete_from_index(self, image_path):
+        """Delete an image from the embeddings index with confirmation"""
+        filename = os.path.basename(image_path)
+        if not messagebox.askyesno("Confirm Deletion", 
+                                 f"Are you sure you want to delete {filename} from the index?\n\n"
+                                 f"This won't delete the actual file, only its entry in the embeddings database."):
+            return
+            
+        # Find absolute path in case it's not already absolute
+        abs_path = os.path.abspath(image_path)
+        
+        # Check if path exists in embeddings
+        if abs_path in self.app.embeddings:
+            # Remove from embeddings
+            del self.app.embeddings[abs_path]
+            
+            # Save updated embeddings
+            embeddings_file = self.app.embeddings_file.get()
+            try:
+                utils.save_embeddings(self.app.embeddings, embeddings_file)
+                self.app.status_text.set(f"Removed {filename} from index")
+                
+                # Update search results if this was part of the results
+                search_tab = self.app.search_tab
+                if search_tab.cached_results:
+                    # Remove from cached results
+                    search_tab.cached_results = [(p, s) for p, s in search_tab.cached_results if p != abs_path]
+                    # Remove from current results
+                    search_tab.result_paths = [(p, s) for p, s in search_tab.result_paths if p != abs_path]
+                    # Update the display
+                    search_tab._update_results_page()
+                
+            except Exception as e:
+                self.app.status_text.set(f"Error saving updated embeddings: {str(e)}")
+                messagebox.showerror("Error", f"Failed to save updated embeddings: {str(e)}")
+        else:
+            # Try to find by relative path comparison
+            found = False
+            for key in list(self.app.embeddings.keys()):
+                if os.path.basename(key) == filename:
+                    del self.app.embeddings[key]
+                    found = True
+                    break
+                    
+            if found:
+                try:
+                    utils.save_embeddings(self.app.embeddings, self.app.embeddings_file.get())
+                    self.app.status_text.set(f"Removed {filename} from index")
+                    
+                    # Update search results
+                    search_tab = self.app.search_tab
+                    if search_tab.cached_results:
+                        # Remove from results by filename
+                        search_tab.cached_results = [(p, s) for p, s in search_tab.cached_results 
+                                                   if os.path.basename(p) != filename]
+                        search_tab.result_paths = [(p, s) for p, s in search_tab.result_paths 
+                                                 if os.path.basename(p) != filename]
+                        search_tab._update_results_page()
+
+                    self.app.embeddings = utils.load_embeddings(self.app.embeddings_file.get())
+                    self.app.status_text.set(f"Removed {filename} from index")
+                        
+                except Exception as e:
+                    self.app.status_text.set(f"Error saving updated embeddings: {str(e)}")
+                    messagebox.showerror("Error", f"Failed to save updated embeddings: {str(e)}")
+            else:
+                messagebox.showinfo("Not Found", f"Could not find {filename} in the index") 

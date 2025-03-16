@@ -177,7 +177,8 @@ class CLIPSearchApp:
         """Save current configuration"""
         config = {
             "embeddings_file": self.embeddings_file.get(),
-            "model_name": self.model_name.get()
+            "model_name": self.model_name.get(),
+            "theme": self.theme_var.get()  # Save the theme preference
         }
         self.config_manager.save_config(config)
 
@@ -189,6 +190,10 @@ class CLIPSearchApp:
                 self.embeddings_file.set(config["embeddings_file"])
             if "model_name" in config:
                 self.model_name.set(config["model_name"])
+            if "theme" in config:
+                # Set the theme variable and apply the theme
+                self.theme_var.set(config["theme"])
+                self._toggle_theme()
 
     def _show_about(self):
         """Show about dialog"""
@@ -237,4 +242,7 @@ Supports both text-based and image-based queries.
                 if requested_theme == "dark":
                     widget.configure(bg="#1c1c1c")
                 else:
-                    widget.configure(bg="#f0f0f0") 
+                    widget.configure(bg="#f0f0f0")
+        
+        # Save the theme preference to config
+        self._save_config() 
