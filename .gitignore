@@ -1,2 +1,6 @@
 embeddings.json.zst
 .venv
+dist
+build
+.idea
+gui.spec

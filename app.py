@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""
+CLIP Search Application
+
+Main application class for the CLIP Image Search tool.
+"""
+
+import os
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import threading
+import torch
+import numpy as np
+from PIL import Image
+
+from search import SearchTab
+from thumbnails import ThumbnailManager
+from generate_tab import GenerateTab
+from utils.config import ConfigManager
+from utils.model_utils import load_model, load_embeddings
+
+class CLIPSearchApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("CLIP Image Search")
+        self.root.geometry("1500x1000")
+        self.root.minsize(800, 600)
+
+        # Set app icon if available
+        try:
+            self.root.iconbitmap("search_icon.ico")
+        except:
+            pass
+
+        # Initialize variables
+        self._initialize_variables()
+        
+        # Create UI elements
+        self._create_menu()
+        self._create_layout()
+
+        # Initialize components
+        self.config_manager = ConfigManager()
+        self.thumbnail_manager = ThumbnailManager(self)
+        
+        # Load last session if available
+        self._load_config()
+        
+    def _initialize_variables(self):
+        """Initialize all the application variables"""
+        # Basic variables
+        self.embeddings_file = tk.StringVar()
+        self.model_name = tk.StringVar(value="laion/CLIP-ViT-H-14-laion2B-s32B-b79K")
+        self.status_text = tk.StringVar(value="Ready")
+        self.progress_var = tk.DoubleVar(value=0)
+        
+        # Model and embeddings
+        self.model = None
+        self.processor = None
+        self.tokenizer = None
+        self.embeddings = {}
+        
+        # Threshold variables
+        self.min_score = 0.0
+        self.auto_threshold = tk.BooleanVar(value=True)
+        self.manual_threshold = tk.DoubleVar(value=0.25)
+
+    def _create_menu(self):
+        """Create the application menu"""
+        menubar = tk.Menu(self.root)
+
+        # File menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Open Embeddings File", command=self._browse_embeddings)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="About", command=self._show_about)
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.root.config(menu=menubar)
+
+    def _create_layout(self):
+        """Create the main application layout"""
+        # Main container
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create notebook (tabs)
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create the search tab
+        self.search_tab = SearchTab(self, self.notebook)
+        
+        # Create the generate tab
+        self.generate_tab = GenerateTab(self, self.notebook)
+        
+        # Status bar
+        status_frame = ttk.Frame(self.root)
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+        self.progress_bar = ttk.Progressbar(status_frame, variable=self.progress_var, length=200, mode="determinate")
+        self.progress_bar.pack(side=tk.RIGHT, padx=10, pady=5)
+
+        status_label = ttk.Label(status_frame, textvariable=self.status_text)
+        status_label.pack(side=tk.LEFT, padx=10, pady=5)
+
+    def _browse_embeddings(self):
+        """Open file dialog to select embeddings file"""
+        filename = filedialog.askopenfilename(
+            title="Select Embeddings File",
+            filetypes=(
+                ("Compressed JSON", "*.json.zst"),
+                ("JSON files", "*.json"),
+                ("All files", "*.*")
+            )
+        )
+        if filename:
+            self.embeddings_file.set(filename)
+            self._save_config()
+
+    def _load_model(self):
+        """Load the CLIP model"""
+        def load_task():
+            try:
+                model_name = self.model_name.get()
+                self.status_text.set(f"Loading model {model_name}...")
+                self.model, self.processor, self.tokenizer = load_model(model_name)
+                
+                device = "GPU" if torch.cuda.is_available() else "CPU"
+                self.status_text.set(f"Model loaded on {device}")
+            except Exception as e:
+                self.status_text.set(f"Error loading model: {str(e)}")
+                messagebox.showerror("Error", f"Failed to load model: {str(e)}")
+
+        threading.Thread(target=load_task, daemon=True).start()
+
+    def _load_embeddings(self):
+        """Load embeddings from file"""
+        if not os.path.isfile(self.embeddings_file.get()):
+            messagebox.showerror("Error", "Please select a valid embeddings file")
+            return
+
+        def load_task():
+            try:
+                self.status_text.set("Loading embeddings...")
+                self.progress_var.set(10)
+                self.embeddings = load_embeddings(self.embeddings_file.get())
+                self.progress_var.set(100)
+                self.status_text.set(f"Loaded {len(self.embeddings)} embeddings")
+            except Exception as e:
+                self.status_text.set(f"Error loading embeddings: {str(e)}")
+                messagebox.showerror("Error", f"Failed to load embeddings: {str(e)}")
+
+        threading.Thread(target=load_task, daemon=True).start()
+
+    def _save_config(self):
+        """Save current configuration"""
+        config = {
+            "embeddings_file": self.embeddings_file.get(),
+            "model_name": self.model_name.get()
+        }
+        self.config_manager.save_config(config)
+
+    def _load_config(self):
+        """Load saved configuration"""
+        config = self.config_manager.load_config()
+        if config:
+            if "embeddings_file" in config:
+                self.embeddings_file.set(config["embeddings_file"])
+            if "model_name" in config:
+                self.model_name.set(config["model_name"])
+
+    def _show_about(self):
+        """Show about dialog"""
+        about_text = """CLIP Image Search
+
+A simple GUI application for searching images using CLIP embeddings.
+Supports both text-based and image-based queries.
+
+- Use text search to find images that match a description
+- Use image search to find visually similar images
+- Click on results to open images
+"""
+        messagebox.showinfo("About CLIP Image Search", about_text) 
