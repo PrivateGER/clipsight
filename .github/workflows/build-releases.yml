@@ -36,12 +36,19 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           release_name: CLIPsight ${{ steps.version.outputs.version }}
           draft: false
-          prerelease: true
+          prerelease: false
           body: |
             Automated build from commit ${{ github.sha }}
             Generated on ${{ github.event.repository.updated_at }}
             
             This is an automated release built with PyInstaller.
+            Select the files applicable to your platform and hardware.
+            Nvidia GPU = CUDA
+            AMD GPU = ROCm
+            CPU is slow and should be avoided.
+
+            Some files may be over 2GB, in which case they will be split into multiple parts.
+            You will need to upload each part separately.
 
   build-windows:
     needs: create-release
