@@ -8,7 +8,6 @@ on:
 jobs:
   create-release:
     runs-on: ubuntu-latest
-    # Add explicit permissions to fix the "Resource not accessible by integration" error
     permissions:
       contents: write
     outputs:
@@ -319,6 +318,12 @@ jobs:
           asset_path: ./dist/CLIPsight-linux-cpu.zip
           asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-linux-cpu.zip
           asset_content_type: application/zip
+
+  build-linux-rocm:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -370,6 +375,12 @@ jobs:
           asset_path: ./dist/CLIPsight-linux-rocm.zip
           asset_name: CLIPsight-${{ needs.create-release.outputs.version }}-linux-rocm.zip
           asset_content_type: application/zip
+          
+  build-linux-cpu:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
