@@ -31,7 +31,7 @@ class CLIPSearchApp:
     def __init__(self, root):
         self.root = root
         self.root.title("CLIP Image Search")
-        self.root.geometry("1200x800")
+        self.root.geometry("1500x1000")
         self.root.minsize(800, 600)
 
         # Set app icon if available
@@ -44,7 +44,7 @@ class CLIPSearchApp:
         self.embeddings_file = tk.StringVar()
         self.query_image = tk.StringVar()
         self.query_text = tk.StringVar()
-        self.num_results = tk.IntVar(value=20)
+        self.num_results = tk.IntVar(value=30)
         self.model_name = tk.StringVar(value="laion/CLIP-ViT-H-14-laion2B-s32B-b79K")
         self.status_text = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
@@ -57,7 +57,7 @@ class CLIPSearchApp:
         self.embeddings = {}
         self.result_paths = []
         self.current_page = 0
-        self.results_per_page = 20
+        self.results_per_page = 30
         self.thumbnails = []
 
         # Create UI elements
@@ -136,6 +136,9 @@ class CLIPSearchApp:
 
         status_label = ttk.Label(status_frame, textvariable=self.status_text)
         status_label.pack(side=tk.LEFT, padx=10, pady=5)
+        
+        # Bind window resize event
+        self.root.bind("<Configure>", self._on_window_resize)
 
     def _create_search_tab(self, parent):
         # Top section (configuration and search controls)
@@ -518,8 +521,25 @@ class CLIPSearchApp:
         total_pages = max(1, (len(self.result_paths) - 1) // self.results_per_page + 1)
         self.page_label.config(text=f"Page {self.current_page + 1} of {total_pages}")
 
-        # Display thumbnails in a grid
-        columns = 5
+        # Calculate number of columns based on window width with better space utilization
+        container_width = self.canvas.winfo_width()
+        scrollbar_width = 20  # Standard scrollbar width
+        available_width = container_width - scrollbar_width  # Account for scrollbar
+        thumbnail_width = 200  # Base image width
+        padding = 10  # Total horizontal padding per thumbnail (5px on each side)
+        min_spacing = 5  # Minimum spacing between thumbnails
+        
+        # Calculate how many thumbnails can fit with minimum spacing
+        columns = max(1, (available_width + min_spacing) // (thumbnail_width + padding + min_spacing))
+        
+        # Calculate actual spacing to distribute remaining width evenly
+        remaining_width = available_width - (columns * (thumbnail_width + padding))
+        extra_spacing = remaining_width // (columns + 1) if columns > 1 else 0
+        
+        # Configure grid columns to be equal width
+        for i in range(columns):
+            self.results_container.grid_columnconfigure(i, weight=1)
+        
         self.thumbnails = []  # Clear current thumbnail references
 
         for i, (path, score) in enumerate(self.result_paths[start_idx:end_idx]):
@@ -529,7 +549,10 @@ class CLIPSearchApp:
             try:
                 # Create frame for each image
                 img_frame = ttk.Frame(self.results_container)
-                img_frame.grid(row=row, column=col, padx=5, pady=5, sticky=tk.NW)
+                # Add the calculated extra spacing to the padding
+                img_frame.grid(row=row, column=col, 
+                             padx=(extra_spacing + 5), pady=5, 
+                             sticky=tk.NW)
 
                 # Open and resize image for thumbnail
                 img = Image.open(path)  # Use absolute path directly
@@ -551,6 +574,20 @@ class CLIPSearchApp:
 
                 # Bind click event to open image
                 img_label.bind("<Button-1>", lambda e, path=path: self._open_image(path))
+                
+                # Add right-click context menu for more actions
+                img_context_menu = tk.Menu(img_label, tearoff=0)
+                img_context_menu.add_command(label="Open Image", 
+                                           command=lambda p=path: self._open_image(p))
+                img_context_menu.add_command(label="Search Similar Images", 
+                                           command=lambda p=path: self._search_by_result(p))
+                
+                def show_context_menu(event, menu=img_context_menu):
+                    menu.tk_popup(event.x_root, event.y_root)
+                    
+                img_label.bind("<Button-3>", show_context_menu)  # Right-click
+                if sys.platform == 'darwin':  # macOS
+                    img_label.bind("<Button-2>", show_context_menu)  # Control+click
 
             except Exception as e:
                 # Display error for failed thumbnails
@@ -570,6 +607,21 @@ class CLIPSearchApp:
         if self.current_page < max_page:
             self.current_page += 1
             self._update_results_page()
+        else:
+            # We're on the last page. Try to load more results
+            current_count = self.num_results.get()
+            # Add 20 more results
+            self.num_results.set(current_count + 20)
+            
+            # Perform the search again with increased result count
+            if self.query_text.get().strip():
+                self._text_search()
+            elif self.query_image.get():
+                self._image_search()
+            
+            # The new search will reset to page 1, so we need to go back to where we were
+            self.current_page = max_page
+            self.root.after(100, self._update_results_page)  # Small delay to ensure results are updated
 
     def _clear_results(self):
         self.result_paths = []
@@ -813,6 +865,20 @@ Supports both text-based and image-based queries.
         # Start generation thread
         self.gen_stop_flag = False
         threading.Thread(target=generation_task, daemon=True).start()
+
+    def _search_by_result(self, image_path):
+        """Use a result image as a new search query"""
+        self.query_image.set(image_path)
+        self.query_text.set("")  # Clear any text query
+        self._image_search()
+
+    def _on_window_resize(self, event):
+        # Only respond to root window resizing, not child widgets
+        if event.widget == self.root:
+            # Avoid excessive updates by adding a small delay
+            if hasattr(self, "_resize_timer"):
+                self.root.after_cancel(self._resize_timer)
+            self._resize_timer = self.root.after(250, self._update_results_page)
 
 
 if __name__ == "__main__":
