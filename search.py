@@ -11,6 +11,7 @@ import torch
 import numpy as np
 from PIL import Image
 from utils import ToolTip
+from utils.model_utils import load_embeddings
 import sv_ttk
 
 class SearchTab:
@@ -127,8 +128,47 @@ class SearchTab:
         action_frame = ttk.Frame(settings_frame)
         action_frame.grid(row=2, column=0, columnspan=3, pady=8, sticky=tk.EW)
         
-        load_btn = ttk.Button(action_frame, text="Load Embeddings", command=self.app._load_embeddings)
+        # Load embeddings button - now starts a background thread
+        load_btn = ttk.Button(action_frame, text="Load Embeddings", 
+                             command=self._start_load_embeddings)
         load_btn.pack(fill=tk.X)
+
+    def _start_load_embeddings(self):
+        """Start loading embeddings in a background thread"""
+        if not os.path.isfile(self.app.embeddings_file.get()):
+            messagebox.showerror("Error", "Please select a valid embeddings file")
+            return
+
+        # Disable the load button while loading
+        for widget in self.tab.winfo_children():
+            if isinstance(widget, ttk.Button) and widget['text'] == "Load Embeddings":
+                widget.configure(state="disabled")
+
+        # Start loading in background thread
+        threading.Thread(target=self._load_embeddings_thread, daemon=True).start()
+
+    def _load_embeddings_thread(self):
+        """Background thread for loading embeddings"""
+        try:
+            self.app.status_text.set("Loading embeddings...")
+            self.app.progress_var.set(10)
+            self.app.embeddings = load_embeddings(self.app.embeddings_file.get())
+            self.app.progress_var.set(100)
+            self.app.status_text.set(f"Loaded {len(self.app.embeddings)} embeddings")
+        except Exception as e:
+            error_msg = str(e)
+            self.app.status_text.set(f"Error loading embeddings: {error_msg}")
+            # Show error dialog in main thread, passing the error message directly
+            self.app.root.after(0, lambda msg=error_msg: messagebox.showerror("Error", f"Failed to load embeddings: {msg}"))
+        finally:
+            # Re-enable the load button in main thread
+            self.app.root.after(0, self._enable_load_button)
+
+    def _enable_load_button(self):
+        """Re-enable the load embeddings button"""
+        for widget in self.tab.winfo_children():
+            if isinstance(widget, ttk.Button) and widget['text'] == "Load Embeddings":
+                widget.configure(state="normal")
 
     def _create_search_panel(self, parent):
         """Create search controls panel"""
