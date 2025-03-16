@@ -83,14 +83,4 @@ Optional arguments:
 
 ## License
 
-This project is open source. [Insert license information here]
-
-## Acknowledgements
-
-- [CLIP](https://github.com/openai/CLIP) by OpenAI
-- [Transformers](https://github.com/huggingface/transformers) by Hugging Face
-- [sv_ttk](https://github.com/rdbende/Sun-Valley-ttk-theme) for the modern UI theme
-
----
-
-Built with ❤️ by [Your Name]
+This project is open source under AGPL. See the [LICENSE](LICENSE) file for more details.
