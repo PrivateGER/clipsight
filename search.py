@@ -29,35 +29,6 @@ class SearchTab:
         self.current_page = 0
         self.results_per_page = 30
         
-        # Create the search UI
-        self._create_search_ui()
-        
-        # Bind events
-        self.query_text_entry.bind("<Return>", self._on_text_search)
-        
-    def _create_search_ui(self):
-        """Create the search tab UI"""
-        # Top section (configuration and search controls)
-        top_frame = ttk.Frame(self.tab)
-        top_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # Left side: Settings
-        self._create_settings_panel(top_frame)
-        
-        # Right side: Search controls
-        self._create_search_panel(top_frame)
-        
-        # Results section
-        self._create_results_panel()
-        
-        # Pagination frame
-        self._create_pagination()
-
-    def _create_settings_panel(self, parent):
-        """Create settings panel"""
-        settings_frame = ttk.LabelFrame(parent, text="Settings", padding="5")
-        settings_frame.pack(fill=tk.X, side=tk.LEFT, expand=True)
-
         # Create a list of suggested models for the dropdown
         self.suggested_models = [
             "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",  # Default high quality model
@@ -66,24 +37,69 @@ class SearchTab:
             "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",  # Smaller, faster LAION model
             "OFA-Sys/chinese-clip-vit-base-patch16",  # Chinese language model
         ]
+        
+        # Create the search UI
+        self._create_search_ui()
+        
+        # Bind events
+        self.query_text_entry.bind("<Return>", self._on_text_search)
+        
+    def _create_search_ui(self):
+        """Create the search tab UI"""
+        # Main container with padding
+        main_container = ttk.Frame(self.tab, padding="10")
+        main_container.pack(fill=tk.BOTH, expand=True)
+        
+        # Top section (configuration and search controls) - flex layout
+        top_frame = ttk.Frame(main_container)
+        top_frame.pack(fill=tk.X, pady=(0, 15))
+        top_frame.columnconfigure(0, weight=1)  # Settings panel
+        top_frame.columnconfigure(1, weight=1)  # Search panel
 
-        ttk.Label(settings_frame, text="Embeddings:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(settings_frame, textvariable=self.app.embeddings_file, width=40).grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
-        ttk.Button(settings_frame, text="Browse...", command=self.app._browse_embeddings).grid(row=0, column=2, padx=5, pady=5)
+        # Left side: Settings
+        self._create_settings_panel(top_frame)
+        
+        # Right side: Search controls
+        self._create_search_panel(top_frame)
+        
+        # Results section
+        self._create_results_panel(main_container)
+        
+        # Pagination frame
+        self._create_pagination(main_container)
 
-        ttk.Label(settings_frame, text="Model:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+    def _create_settings_panel(self, parent):
+        """Create settings panel"""
+        settings_frame = ttk.LabelFrame(parent, text="Settings", padding="10")
+        settings_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, 5))
+
+        # Two-column grid layout with better spacing
+        settings_frame.columnconfigure(1, weight=1)
+        
+        # Embeddings file row
+        ttk.Label(settings_frame, text="Embeddings:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=8)
+        ttk.Entry(settings_frame, textvariable=self.app.embeddings_file, width=30).grid(row=0, column=1, sticky=tk.EW, padx=5, pady=8)
+        browse_button = ttk.Button(settings_frame, text="Browse...", command=self.app._browse_embeddings)
+        browse_button.grid(row=0, column=2, padx=5, pady=8)
+
+        # Model selection row
+        ttk.Label(settings_frame, text="Model:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=8)
         
         # Create a combobox for model selection
-        model_combo = ttk.Combobox(settings_frame, textvariable=self.app.model_name, width=38)
-        model_combo.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
+        model_combo = ttk.Combobox(settings_frame, textvariable=self.app.model_name, width=30)
+        model_combo.grid(row=1, column=1, sticky=tk.EW, padx=5, pady=8)
         
         # Configure the combobox
         model_combo['values'] = self.suggested_models
         model_combo.configure(state="normal")  # Allow custom entries
         
+        # Create button frame for model controls
+        model_buttons = ttk.Frame(settings_frame)
+        model_buttons.grid(row=1, column=2, padx=5, pady=8)
+        
         # Add an info button for model description
-        info_button = ttk.Button(settings_frame, text="ℹ", width=1, style="Info.TButton")
-        info_button.grid(row=1, column=2, padx=(0,5), pady=5)
+        info_button = ttk.Button(model_buttons, text="ℹ", width=2, style="Info.TButton")
+        info_button.pack(side=tk.LEFT, padx=(0, 3))
         
         # Create tooltip for the info button
         self.model_tooltip = ToolTip(info_button, "Select a model to see its description", delay=100, wraplength=350)
@@ -92,7 +108,7 @@ class SearchTab:
         style = ttk.Style()
         style.configure("Info.TButton", font=("", 10, "bold"))
         
-        ttk.Button(settings_frame, text="Load", command=self.app._load_model).grid(row=1, column=3, padx=5, pady=5)
+        ttk.Button(model_buttons, text="Load", command=self.app._load_model).pack(side=tk.LEFT)
         
         # Update tooltip when model changes
         def update_model_tooltip(*args):
@@ -107,49 +123,55 @@ class SearchTab:
         # Call once to set initial tooltip
         update_model_tooltip()
 
-        ttk.Button(settings_frame, text="Load Embeddings", command=self.app._load_embeddings).grid(
-            row=2, column=0, columnspan=3, padx=5, pady=5, sticky=tk.EW)
-
-        settings_frame.columnconfigure(1, weight=1)
+        # Action button row - span all columns
+        action_frame = ttk.Frame(settings_frame)
+        action_frame.grid(row=2, column=0, columnspan=3, pady=8, sticky=tk.EW)
+        
+        load_btn = ttk.Button(action_frame, text="Load Embeddings", command=self.app._load_embeddings)
+        load_btn.pack(fill=tk.X)
 
     def _create_search_panel(self, parent):
         """Create search controls panel"""
-        search_frame = ttk.LabelFrame(parent, text="Search", padding="5")
-        search_frame.pack(fill=tk.X, side=tk.RIGHT, expand=True, padx=(10, 0))
+        search_frame = ttk.LabelFrame(parent, text="Search", padding="10")
+        search_frame.grid(row=0, column=1, sticky=tk.NSEW, padx=(5, 0))
 
-        # Text search
-        ttk.Label(search_frame, text="Text Query:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        # Configure grid
+        search_frame.columnconfigure(1, weight=1)
+        
+        # Text search row
+        ttk.Label(search_frame, text="Text Query:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=8)
         self.query_text_entry = ttk.Entry(search_frame, textvariable=self.query_text, width=30)
-        self.query_text_entry.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
-        ttk.Button(search_frame, text="Search", command=self._on_text_search).grid(row=0, column=2, padx=5, pady=5)
+        self.query_text_entry.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=8)
+        ttk.Button(search_frame, text="Search", command=self._on_text_search).grid(row=0, column=2, padx=5, pady=8)
 
-        # Image search
-        ttk.Label(search_frame, text="Image Query:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(search_frame, textvariable=self.query_image, width=30).grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
-        ttk.Button(search_frame, text="Browse...", command=self._browse_query_image).grid(row=1, column=2, padx=5, pady=5)
+        # Image search row
+        ttk.Label(search_frame, text="Image Query:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=8)
+        ttk.Entry(search_frame, textvariable=self.query_image, width=30).grid(row=1, column=1, sticky=tk.EW, padx=5, pady=8)
+        ttk.Button(search_frame, text="Browse...", command=self._browse_query_image).grid(row=1, column=2, padx=5, pady=8)
 
-        # Threshold controls
-        ttk.Label(search_frame, text="Score Threshold:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        # Threshold controls row
+        ttk.Label(search_frame, text="Score Threshold:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=8)
         threshold_frame = ttk.Frame(search_frame)
-        threshold_frame.grid(row=2, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=5)
+        threshold_frame.grid(row=2, column=1, columnspan=2, sticky=tk.EW, padx=5, pady=8)
         
         ttk.Checkbutton(threshold_frame, text="Auto", variable=self.app.auto_threshold).pack(side=tk.LEFT)
         self.threshold_spinbox = ttk.Spinbox(threshold_frame, from_=0.0, to=1.0, increment=0.05,
                                            textvariable=self.app.manual_threshold, width=5)
-        self.threshold_spinbox.pack(side=tk.LEFT, padx=5)
+        self.threshold_spinbox.pack(side=tk.LEFT, padx=10)
+        
+        # Action button row
+        action_frame = ttk.Frame(search_frame)
+        action_frame.grid(row=3, column=0, columnspan=3, pady=8, sticky=tk.EW)
         
         # Clear results button
-        ttk.Button(search_frame, text="Clear Results", command=self._clear_results).grid(
-            row=3, column=0, columnspan=3, padx=5, pady=5, sticky=tk.EW)
+        ttk.Button(action_frame, text="Clear Results", command=self._clear_results).pack(fill=tk.X)
 
-        search_frame.columnconfigure(1, weight=1)
-
-    def _create_results_panel(self):
+    def _create_results_panel(self, parent):
         """Create the results display panel"""
-        results_frame = ttk.Frame(self.tab)
+        results_frame = ttk.Frame(parent)
         results_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
-        # Create canvas with scrollbars
+        # Create canvas with vertical scrollbar only
         self.canvas = tk.Canvas(results_frame, bd=0, highlightthickness=0)
         
         # Set the canvas background based on current theme
@@ -158,13 +180,10 @@ class SearchTab:
         self.canvas.configure(bg=bg_color)
         
         self.scrollbar_y = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.scrollbar_x = ttk.Scrollbar(results_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.canvas.configure(yscrollcommand=self.scrollbar_y.set)
         
-        self.canvas.configure(yscrollcommand=self.scrollbar_y.set, xscrollcommand=self.scrollbar_x.set)
-        
-        # Packing order matters for scrollbars
+        # Pack scrollbar and canvas
         self.scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
-        self.scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # Frame inside canvas for results
@@ -181,15 +200,25 @@ class SearchTab:
         # Bind window resize event
         self.app.root.bind("<Configure>", self._on_window_resize)
 
-    def _create_pagination(self):
+    def _create_pagination(self, parent):
         """Create pagination controls"""
-        pagination_frame = ttk.Frame(self.tab)
+        pagination_frame = ttk.Frame(parent)
         pagination_frame.pack(fill=tk.X, pady=(10, 0))
 
-        ttk.Button(pagination_frame, text="Previous", command=self._prev_page).pack(side=tk.LEFT)
-        self.page_label = ttk.Label(pagination_frame, text="Page 1")
-        self.page_label.pack(side=tk.LEFT, padx=10)
-        ttk.Button(pagination_frame, text="Next", command=self._next_page).pack(side=tk.LEFT)
+        # Center the pagination controls
+        spacer1 = ttk.Frame(pagination_frame)
+        spacer1.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        controls_frame = ttk.Frame(pagination_frame)
+        controls_frame.pack(side=tk.LEFT)
+        
+        ttk.Button(controls_frame, text="Previous", command=self._prev_page).pack(side=tk.LEFT, padx=5)
+        self.page_label = ttk.Label(controls_frame, text="Page 1")
+        self.page_label.pack(side=tk.LEFT, padx=15)
+        ttk.Button(controls_frame, text="Next", command=self._next_page).pack(side=tk.LEFT, padx=5)
+        
+        spacer2 = ttk.Frame(pagination_frame)
+        spacer2.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _browse_query_image(self):
         """Browse for an image to use as search query"""

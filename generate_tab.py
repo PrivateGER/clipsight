@@ -46,57 +46,62 @@ class GenerateTab:
     
     def _create_ui(self):
         """Create the UI for embedding generation tab"""
-        # Main frame
-        frame = ttk.Frame(self.tab, padding="10")
-        frame.pack(fill=tk.BOTH, expand=True)
+        # Main container with padding
+        main_container = ttk.Frame(self.tab, padding="10")
+        main_container.pack(fill=tk.BOTH, expand=True)
         
         # Input settings
-        settings_frame = ttk.LabelFrame(frame, text="Generation Settings", padding="10")
-        settings_frame.pack(fill=tk.X, pady=(0, 10))
+        settings_frame = ttk.LabelFrame(main_container, text="Generation Settings", padding="10")
+        settings_frame.pack(fill=tk.X, pady=(0, 15))
         
-        # Image directory
-        ttk.Label(settings_frame, text="Images Directory:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(settings_frame, textvariable=self.gen_directory, width=40).grid(row=0, column=1, sticky=tk.EW, padx=5, pady=5)
-        ttk.Button(settings_frame, text="Browse...", command=self._browse_gen_directory).grid(row=0, column=2, padx=5, pady=5)
+        # Configure grid columns
+        settings_frame.columnconfigure(1, weight=1)
         
-        # Output file
-        ttk.Label(settings_frame, text="Output File:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(settings_frame, textvariable=self.gen_output, width=40).grid(row=1, column=1, sticky=tk.EW, padx=5, pady=5)
-        ttk.Button(settings_frame, text="Browse...", command=self._browse_gen_output).grid(row=1, column=2, padx=5, pady=5)
+        # Image directory row
+        ttk.Label(settings_frame, text="Images Directory:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=8)
+        ttk.Entry(settings_frame, textvariable=self.gen_directory, width=40).grid(row=0, column=1, sticky=tk.EW, padx=5, pady=8)
+        ttk.Button(settings_frame, text="Browse...", command=self._browse_gen_directory).grid(row=0, column=2, padx=5, pady=8)
         
-        # Use current embeddings button
-        ttk.Button(settings_frame, text="Use Current Embeddings File", 
-                   command=lambda: self.gen_output.set(self.app.embeddings_file.get())).grid(
-            row=1, column=3, padx=5, pady=5)
+        # Output file row
+        ttk.Label(settings_frame, text="Output File:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=8)
+        ttk.Entry(settings_frame, textvariable=self.gen_output, width=40).grid(row=1, column=1, sticky=tk.EW, padx=5, pady=8)
         
-        # Model selection with dropdown
-        ttk.Label(settings_frame, text="Model:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        # Output file buttons
+        output_buttons = ttk.Frame(settings_frame)
+        output_buttons.grid(row=1, column=2, padx=5, pady=8)
+        
+        ttk.Button(output_buttons, text="Browse...", command=self._browse_gen_output).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(output_buttons, text="Use Current", 
+                   command=lambda: self.gen_output.set(self.app.embeddings_file.get())).pack(side=tk.LEFT)
+        
+        # Model selection row
+        ttk.Label(settings_frame, text="Model:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=8)
         
         # Create a combobox for model selection
-        model_combo = ttk.Combobox(settings_frame, textvariable=self.gen_model, width=38)
-        model_combo.grid(row=2, column=1, sticky=tk.EW, padx=5, pady=5)
+        model_combo = ttk.Combobox(settings_frame, textvariable=self.gen_model, width=40)
+        model_combo.grid(row=2, column=1, sticky=tk.EW, padx=5, pady=8)
         
         # Configure the combobox
         model_combo['values'] = self.suggested_models
         model_combo.configure(state="normal")  # Allow custom entries
         
+        # Model buttons
+        model_buttons = ttk.Frame(settings_frame)
+        model_buttons.grid(row=2, column=2, padx=5, pady=8)
+        
         # Add an info button for model description
-        info_button = ttk.Button(settings_frame, text="ℹ", width=2, style="Info.TButton")
-        info_button.grid(row=2, column=2, padx=(0,5), pady=5)
+        info_button = ttk.Button(model_buttons, text="ℹ", width=2, style="Info.TButton")
+        info_button.pack(side=tk.LEFT, padx=(0, 5))
         
         # Create tooltip for the info button
         self.model_tooltip = utils.ToolTip(info_button, "Select a model to see its description", delay=100, wraplength=350)
         
         # Configure the style for info buttons
         style = ttk.Style()
-        current_theme = sv_ttk.get_theme()
-        if current_theme == "dark":
-            style.configure("Info.TButton", font=("", 10, "bold"))
-        else:
-            style.configure("Info.TButton", font=("", 10, "bold"))
+        style.configure("Info.TButton", font=("", 10, "bold"))
         
-        ttk.Button(settings_frame, text="Use Search Model", command=lambda: self.gen_model.set(self.app.model_name.get())).grid(
-            row=2, column=3, padx=5, pady=5)
+        ttk.Button(model_buttons, text="Use Search Model", 
+                  command=lambda: self.gen_model.set(self.app.model_name.get())).pack(side=tk.LEFT)
         
         # Update tooltip when model changes
         def update_model_tooltip(*args):
@@ -111,27 +116,38 @@ class GenerateTab:
         # Call once to set initial tooltip
         update_model_tooltip()
         
+        # Advanced options row
+        advanced_frame = ttk.Frame(settings_frame)
+        advanced_frame.grid(row=3, column=0, columnspan=3, sticky=tk.EW, padx=5, pady=8)
+        
         # Batch size
-        ttk.Label(settings_frame, text="Batch Size:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Spinbox(settings_frame, from_=1, to=64, textvariable=self.gen_batch_size, width=5).grid(
-            row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        batch_frame = ttk.Frame(advanced_frame)
+        batch_frame.pack(side=tk.LEFT, padx=(0, 20))
+        
+        ttk.Label(batch_frame, text="Batch Size:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Spinbox(batch_frame, from_=1, to=64, textvariable=self.gen_batch_size, width=5).pack(side=tk.LEFT)
         
         # FP16 checkbox
-        ttk.Checkbutton(settings_frame, text="Use FP16 (half precision, requires GPU)",
-                       variable=self.gen_fp16).grid(row=3, column=2, padx=5, pady=5, sticky=tk.W)
+        fp16_frame = ttk.Frame(advanced_frame)
+        fp16_frame.pack(side=tk.LEFT)
         
-        settings_frame.columnconfigure(1, weight=1)
+        ttk.Checkbutton(fp16_frame, text="Use FP16 (half precision, requires GPU)",
+                       variable=self.gen_fp16).pack(side=tk.LEFT)
         
         # Action buttons
-        actions_frame = ttk.Frame(frame)
-        actions_frame.pack(fill=tk.X, pady=(0, 10))
+        actions_frame = ttk.Frame(main_container)
+        actions_frame.pack(fill=tk.X, pady=(0, 15))
         
-        ttk.Button(actions_frame, text="Generate Embeddings", command=self._generate_embeddings).pack(side=tk.LEFT, padx=5)
+        ttk.Button(actions_frame, text="Generate Embeddings", command=self._generate_embeddings, 
+                  style="Accent.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(actions_frame, text="Stop", command=self._stop_generation).pack(side=tk.LEFT, padx=5)
         
+        # Create accent button style
+        style.configure("Accent.TButton", font=("", 10, "bold"))
+        
         # Progress section
-        progress_frame = ttk.LabelFrame(frame, text="Progress", padding="10")
-        progress_frame.pack(fill=tk.X, pady=(0, 10))
+        progress_frame = ttk.LabelFrame(main_container, text="Progress", padding="10")
+        progress_frame.pack(fill=tk.X, pady=(0, 15))
         
         self.gen_progress_bar = ttk.Progressbar(progress_frame, variable=self.gen_progress, length=200, mode="determinate")
         self.gen_progress_bar.pack(fill=tk.X, pady=5)
@@ -139,7 +155,7 @@ class GenerateTab:
         ttk.Label(progress_frame, textvariable=self.gen_status).pack(anchor=tk.W)
         
         # Log frame
-        log_frame = ttk.LabelFrame(frame, text="Log", padding="10")
+        log_frame = ttk.LabelFrame(main_container, text="Log", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True)
         
         log_scroll = ttk.Scrollbar(log_frame)
