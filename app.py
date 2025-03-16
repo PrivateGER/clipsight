@@ -25,7 +25,7 @@ from utils.model_utils import load_model, load_embeddings
 class CLIPSearchApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CLIP Image Search")
+        self.root.title("CLIPSight")
         self.root.geometry("1500x1000")
         self.root.minsize(800, 600)
 
@@ -192,7 +192,7 @@ class CLIPSearchApp:
 
     def _show_about(self):
         """Show about dialog"""
-        about_text = """CLIP Image Search
+        about_text = """CLIPsight
 
 A simple GUI application for searching images using CLIP embeddings.
 Supports both text-based and image-based queries.
@@ -201,7 +201,7 @@ Supports both text-based and image-based queries.
 - Use image search to find visually similar images
 - Click on results to open images
 """
-        messagebox.showinfo("About CLIP Image Search", about_text)
+        messagebox.showinfo("About CLIPSight", about_text)
 
     def _toggle_theme(self):
         """Toggle between light and dark themes"""
@@ -216,6 +216,19 @@ Supports both text-based and image-based queries.
         
         # Update Windows-specific title bar if applicable
         if sys.platform == 'win32' and 'apply_theme_to_titlebar' in globals():
+            import pywinstyles
+            def apply_theme_to_titlebar(root):
+                version = sys.getwindowsversion()
+
+                if version.major == 10 and version.build >= 22000:
+                    # Set the title bar color to the background color on Windows 11 for better appearance
+                    pywinstyles.change_header_color(root, "#1c1c1c" if sv_ttk.get_theme() == "dark" else "#fafafa")
+                elif version.major == 10:
+                    pywinstyles.apply_style(root, "dark" if sv_ttk.get_theme() == "dark" else "normal")
+
+                    # A hacky way to update the title bar's color on Windows 10 (it doesn't update instantly like on Windows 11)
+                    root.wm_attributes("-alpha", 0.99)
+                    root.wm_attributes("-alpha", 1)
             apply_theme_to_titlebar(self.root)
         
         # Update canvas backgrounds

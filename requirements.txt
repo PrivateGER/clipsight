@@ -1,2 +1,9 @@
 zstandard>=0.21.0
-# ... other requirements ... 
+torch>=2.0.0+cu118
+torchvision>=0.15.0+cu118
+Pillow>=9.5.0
+numpy>=1.24.0
+tqdm>=4.65.0
+darkdetect>=0.8.0
+sv-ttk>=2.5.0
+pywinstyles>=1.0.1

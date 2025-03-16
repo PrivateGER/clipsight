@@ -6,6 +6,8 @@ Configuration management for CLIP Image Search.
 import os
 import json
 
+APP_NAME = "CLIPsight"
+
 class ConfigManager:
     def __init__(self, config_dir=None):
         """Initialize the config manager"""
