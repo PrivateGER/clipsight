@@ -82,7 +82,7 @@ class SearchTab:
         model_combo.configure(state="normal")  # Allow custom entries
         
         # Add an info button for model description
-        info_button = ttk.Button(settings_frame, text="ℹ", width=2, style="Info.TButton")
+        info_button = ttk.Button(settings_frame, text="ℹ", width=1, style="Info.TButton")
         info_button.grid(row=1, column=2, padx=(0,5), pady=5)
         
         # Create tooltip for the info button
