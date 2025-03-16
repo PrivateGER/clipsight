@@ -12,6 +12,9 @@ import threading
 import torch
 import numpy as np
 from PIL import Image
+import sv_ttk
+import darkdetect
+import sys
 
 from search import SearchTab
 from thumbnails import ThumbnailManager
@@ -75,6 +78,18 @@ class CLIPSearchApp:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         menubar.add_cascade(label="File", menu=file_menu)
+        
+        # View menu for theme toggle
+        view_menu = tk.Menu(menubar, tearoff=0)
+        self.theme_var = tk.StringVar(value=sv_ttk.get_theme())  # Track current theme
+        view_menu.add_radiobutton(label="Light Theme", variable=self.theme_var, 
+                                 value="light", command=self._toggle_theme)
+        view_menu.add_radiobutton(label="Dark Theme", variable=self.theme_var,
+                                 value="dark", command=self._toggle_theme)
+        view_menu.add_separator()
+        view_menu.add_radiobutton(label="System Theme", variable=self.theme_var,
+                                 value="system", command=self._toggle_theme)
+        menubar.add_cascade(label="View", menu=view_menu)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -186,4 +201,27 @@ Supports both text-based and image-based queries.
 - Use image search to find visually similar images
 - Click on results to open images
 """
-        messagebox.showinfo("About CLIP Image Search", about_text) 
+        messagebox.showinfo("About CLIP Image Search", about_text)
+
+    def _toggle_theme(self):
+        """Toggle between light and dark themes"""
+        requested_theme = self.theme_var.get()
+        
+        # Handle "system" theme option
+        if requested_theme == "system":
+            requested_theme = darkdetect.theme().lower()
+        
+        # Set the theme
+        sv_ttk.set_theme(requested_theme)
+        
+        # Update Windows-specific title bar if applicable
+        if sys.platform == 'win32' and 'apply_theme_to_titlebar' in globals():
+            apply_theme_to_titlebar(self.root)
+        
+        # Update canvas backgrounds
+        for widget in self.root.winfo_children():
+            if isinstance(widget, tk.Canvas):
+                if requested_theme == "dark":
+                    widget.configure(bg="#1c1c1c")
+                else:
+                    widget.configure(bg="#f0f0f0") 
