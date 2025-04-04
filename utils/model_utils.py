@@ -62,17 +62,31 @@ def save_embeddings(embeddings, file_path):
 
 def find_images_to_process(image_files, existing_embeddings):
     """
-    Find images that need to be processed based on path comparison.
-    Returns a list of image paths that need processing.
+    Find images that need processing by comparing with existing embeddings.
+    
+    Args:
+        image_files: List of image file paths
+        existing_embeddings: Dictionary of existing embeddings
+        
+    Returns:
+        List of image paths that need processing
     """
-    to_process = []
-    existing_paths = {entry['path'] for entry in existing_embeddings.values()}
-
-    for image_path in image_files:
-        abs_path = os.path.abspath(image_path)
-        if abs_path not in existing_paths:
-            to_process.append(abs_path)
-
+    # Filter out special entries like '_model_info' that aren't actual embeddings
+    filtered_embeddings = {k: v for k, v in existing_embeddings.items() if not k.startswith('_')}
+    
+    # Extract paths from existing embeddings, handling different possible structures
+    existing_paths = set()
+    for key, entry in filtered_embeddings.items():
+        # If the entry itself is the path (key is the filename, value contains the embedding)
+        if isinstance(entry, dict) and 'path' in entry:
+            existing_paths.add(entry['path'])
+        # If the key is the path
+        else:
+            existing_paths.add(key)
+    
+    # Find images that don't have embeddings yet
+    to_process = [path for path in image_files if path not in existing_paths]
+    
     return to_process
 
 def process_images_batch(image_paths, model_name, batch_size=16, use_fp16=False, progress_callback=None, stop_flag=None):
