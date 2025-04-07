@@ -1,5 +1,7 @@
 # CLIPsight
 
+<p align="center"><img src="https://minio.plasmatrap.com/plasmatrap/assets/3cb9ff10-dd0c-48fc-9398-6aa316f66f86.png" height="200" /></p>
+
 A graphical user interface application for searching images using CLIP embeddings. 
 This tool allows you to search through your image collection using natural language descriptions or similar image queries.
 
